@@ -30,6 +30,7 @@ import {
   KeyOutlined,
   PauseOutlined,
   PlusOutlined,
+  RobotOutlined,
   ScissorOutlined,
   SearchOutlined,
   UploadOutlined
@@ -38,6 +39,7 @@ import { Modal, type ItemType, type UploadChangeParam, type UploadProps } from "
 import dayjs from "dayjs";
 import { computed, h, nextTick, onMounted, onUnmounted, ref, type CSSProperties } from "vue";
 import FileEditor from "./dialogs/FileEditor.vue";
+import { useAppRouters } from "@/hooks/useAppRouters";
 
 const props = defineProps<{
   card: LayoutCard;
@@ -46,6 +48,19 @@ const props = defineProps<{
 const { getMetaOrRouteValue } = useLayoutCardTools(props.card);
 const instanceId = getMetaOrRouteValue("instanceId");
 const daemonId = getMetaOrRouteValue("daemonId");
+const { toPage } = useAppRouters();
+
+/** Deep-link into the Agent page bound to this instance workspace. */
+const openAgent = (file = "") => {
+  toPage({
+    path: "/agent",
+    query: {
+      instanceUuid: instanceId ?? "",
+      daemonId: daemonId ?? "",
+      file: file || currentPath.value || ""
+    }
+  });
+};
 
 const { isPhone } = useScreen();
 
@@ -530,6 +545,11 @@ onUnmounted(() => {
               {{ t("TXT_CODE_a53573af") }}
             </a-button>
 
+            <a-button type="primary" ghost @click="openAgent()" title="Ask the AI Agent about this workspace">
+              <template #icon><RobotOutlined /></template>
+              Ask Agent
+            </a-button>
+
             <a-dropdown v-if="isMultiple">
               <template #overlay>
                 <a-menu
@@ -779,6 +799,17 @@ onUnmounted(() => {
                       </a-button>
                     </a-dropdown>
                     <a-space v-else>
+                      <a-tooltip
+                        :title="t('TXT_CODE_ask_agent')"
+                      >
+                        <a-button
+                          type="text"
+                          size="small"
+                          @click="openAgent(record.name)"
+                        >
+                          <RobotOutlined />
+                        </a-button>
+                      </a-tooltip>
                       <a-tooltip
                         v-for="(item, i) in (menuList(record as DataType) as any).filter(
                           (menu: any) => !menu.children

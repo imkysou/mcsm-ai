@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import path from "path";
 import { pipeline, Readable } from "stream";
 import { STEAM_CMD_PATH, SYSTEM_TYPE, WINDOWS_STEAM_CMD_URL } from "../const";
+import { getDaemonRoot } from "../embedded";
 import logger from "../service/log";
 import FileManager from "../service/system_file";
 import { getCommonHeaders } from "../common/network";
@@ -20,7 +21,7 @@ export async function initSteamCmd() {
 }
 
 export async function downloadSteam(url: string): Promise<string> {
-  const tmpPath = path.normalize(path.join(process.cwd(), "lib", "tmp_steamcmd.zip"));
+  const tmpPath = path.normalize(path.join(getDaemonRoot(), "lib", "tmp_steamcmd.zip"));
   logger.info(`Starting Steam command line tool download: ${url} --> ${tmpPath}`);
 
   return new Promise(async (resolve, reject) => {

@@ -7,6 +7,7 @@ import { speedLimit } from "../middleware/limit";
 import permission from "../middleware/permission";
 import validator from "../middleware/validator";
 import { updateInstanceWithAudit } from "../service/instance_config_audit";
+import { rewriteDaemonAddressForFrontend } from "../service/embedded_daemon";
 import { getInstanceNameSafely } from "../service/instance_name_service";
 import { checkInstanceAdvancedParams, getAppMarketList } from "../service/instance_service";
 import { getOperationLoggerOperator, operationLogger } from "../service/operation_logger";
@@ -237,8 +238,16 @@ router.post(
       const instanceUuid = String(ctx.query.uuid);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
-      const addr = remoteService.config.addr;
-      const prefix = remoteService.config.prefix;
+      // In single-process mode, rewrite the advertised daemon address so the
+      // browser terminal connects through the panel origin (same port).
+      const addrInfo = {
+        ip: remoteService.config.ip,
+        port: remoteService.config.port,
+        prefix: remoteService.config.prefix
+      };
+      rewriteDaemonAddressForFrontend(daemonId, addrInfo, ctx.host, systemConfig?.prefix || "");
+      const addr = `${addrInfo.ip}:${addrInfo.port}`;
+      const prefix = addrInfo.prefix;
       const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {

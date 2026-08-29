@@ -49,6 +49,10 @@ class Config {
   ssl = false;
   sslPemPath = "";
   sslKeyPath = "";
+
+  // When true, this daemon is managed by the panel's embedded single-process
+  // mode (panel + daemon share one HTTP port and one Node process).
+  public embedded = false;
 }
 
 // daemon configuration class

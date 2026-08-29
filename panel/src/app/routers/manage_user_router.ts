@@ -7,8 +7,15 @@ import validator from "../middleware/validator";
 import { getOperationLoggerOperator, operationLogger } from "../service/operation_logger";
 import { register } from "../service/passport_service";
 import userSystem from "../service/user_service";
+import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/auth" });
+
+function checkSingleUser() {
+  if (systemConfig?.singleUserMode) {
+    throw new Error("User management is disabled in single-user mode");
+  }
+}
 
 // Add user
 router.post(
@@ -16,6 +23,7 @@ router.post(
   permission({ level: ROLE.ADMIN }),
   validator({ body: { username: String, password: String, permission: Number } }),
   async (ctx: Koa.ParameterizedContext) => {
+    checkSingleUser();
     const userName = String(ctx.request.body.username);
     const passWord = String(ctx.request.body.password);
     const permission = Number(ctx.request.body.permission);
@@ -33,6 +41,7 @@ router.post(
 
 // Delete user
 router.del("/", permission({ level: ROLE.ADMIN }), async (ctx: Koa.ParameterizedContext) => {
+  checkSingleUser();
   const uuids = ctx.request.body;
   try {
     for (const iterator of uuids) {

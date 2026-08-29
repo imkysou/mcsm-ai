@@ -117,4 +117,8 @@ export default class SystemConfig {
   sslPemPath = "";
   // SSL private key file path (.key)
   sslKeyPath = "";
+
+  // MCSM-AI single-user mode: only one administrator account is allowed.
+  // User creation/deletion and the user management UI are disabled.
+  singleUserMode = true;
 }

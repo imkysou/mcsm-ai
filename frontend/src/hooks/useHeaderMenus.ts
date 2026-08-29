@@ -80,7 +80,7 @@ export function useHeaderMenus() {
   };
 
   const onClickIcon = () => {
-    window.open("https://github.com/MCSManager/MCSManager", "_blank");
+    window.open("https://github.com/imkysou/mcsm-ai", "_blank");
   };
 
   const menus = computed(() => {
@@ -105,7 +105,7 @@ export function useHeaderMenus() {
         );
       })
       .map((r) => ({
-        name: r.name,
+        name: (r.meta as RouterMetaInfo).navTitle || r.name,
         path: r.path,
         meta: r.meta,
         customClass: r.meta.customClass ?? []

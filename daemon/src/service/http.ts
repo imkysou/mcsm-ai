@@ -6,9 +6,10 @@ import { uploadFileCheckMiddleware, uploadSpeedLimitMiddleware } from "../middle
 import koaRouter from "../routers/http_router";
 import logger from "./log";
 
-export function initKoa() {
+export function initKoa(opts?: { ignorePrefix?: boolean }) {
   const koaApp = new Koa();
   const config = globalConfiguration.config;
+  const usePrefix = !opts?.ignorePrefix;
   koaApp.use(uploadSpeedLimitMiddleware);
   koaApp.use(uploadFileCheckMiddleware);
   koaApp.use(
@@ -38,7 +39,7 @@ export function initKoa() {
     ctx.response.set("X-Power-by", "MCSManager");
   });
 
-  if (config.prefix != "") {
+  if (usePrefix && config.prefix != "") {
     const prefix = config.prefix;
     koaApp.use(async (ctx, next) => {
       if (ctx.url.startsWith(prefix)) {

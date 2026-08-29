@@ -54,9 +54,7 @@ const selectNode = (node: ComputedNodeInfo) => {
 };
 
 const toNodesPage = () => {
-  router.push({
-    path: "/node"
-  });
+  // Node page removed in MCSM-AI; fall back to an empty state hint.
   isVisible.value = false;
 };
 

@@ -7,6 +7,7 @@ import { ROLE } from "../entity/user";
 import { $t } from "../i18n";
 import permission from "../middleware/permission";
 import validator from "../middleware/validator";
+import { rewriteDaemonAddressForFrontend } from "../service/embedded_daemon";
 import { updateInstanceWithAudit } from "../service/instance_config_audit";
 import { multiOperationForwarding } from "../service/instance_service";
 import { logger } from "../service/log";
@@ -93,7 +94,15 @@ router.post(
         instance_name: result.nickname
       });
       // Send a cross-end file upload task to the daemon
-      const addr = remoteService.config.fullAddr;
+      // In single-process mode, rewrite the advertised daemon address so the
+      // browser uploads through the panel origin (same port).
+      const addrInfo = {
+        ip: remoteService.config.ip,
+        port: remoteService.config.port,
+        prefix: remoteService.config.prefix
+      };
+      rewriteDaemonAddressForFrontend(daemonId, addrInfo, ctx.host, systemConfig?.prefix || "");
+      const addr = `${addrInfo.ip}:${addrInfo.port}${addrInfo.prefix ?? ""}`;
       const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {

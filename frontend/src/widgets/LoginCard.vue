@@ -234,8 +234,8 @@ onMounted(async () => {
                     v-html="markdownToHTML(pageInfoResult?.loginInfo || '')"
                   ></div>
                   Powered by
-                  <a href="https://mcsmanager.com" target="_blank" rel="noopener noreferrer">
-                    MCSManager
+                  <a href="https://github.com/imkysou/mcsm-ai" target="_blank" rel="noopener noreferrer">
+                    MCSM-AI
                   </a>
                 </div>
                 <div v-else></div>

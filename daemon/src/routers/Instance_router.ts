@@ -171,6 +171,22 @@ routerApp.on("instance/detail", async (ctx, data) => {
   }
 });
 
+// Return the absolute working directory of an instance on this daemon host.
+// Used by the panel Agent to resolve `/instance/<uuid>` workspaces to real paths.
+routerApp.on("instance/absolute_cwd", (ctx, data) => {
+  try {
+    const instanceUuid = String(data.instanceUuid || "");
+    const instance = InstanceSubsystem.getInstance(instanceUuid);
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    protocol.msg(ctx, "instance/absolute_cwd", {
+      instanceUuid,
+      cwd: instance.absoluteCwdPath()
+    });
+  } catch (err: any) {
+    protocol.error(ctx, "instance/absolute_cwd", { err: err.message });
+  }
+});
+
 // create a new application instance
 routerApp.on("instance/new", (ctx, data) => {
   const config = data;

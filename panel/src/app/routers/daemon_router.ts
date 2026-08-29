@@ -3,9 +3,11 @@ import { diffConfig } from "../common/config_diff";
 import { ROLE } from "../entity/user";
 import permission from "../middleware/permission";
 import validator from "../middleware/validator";
+import { rewriteDaemonAddressForFrontend } from "../service/embedded_daemon";
 import { getOperationLoggerOperator, operationLogger } from "../service/operation_logger";
 import RemoteRequest from "../service/remote_command";
 import RemoteServiceSubsystem from "../service/remote_service";
+import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/service" });
 
@@ -15,15 +17,17 @@ const router = new Router({ prefix: "/service" });
 router.get("/remote_services_list", permission({ level: ROLE.ADMIN }), async (ctx) => {
   const result = new Array();
   for (const iterator of RemoteServiceSubsystem.services.entries()) {
-    const remoteService = iterator[1];
-    result.push({
-      uuid: remoteService.uuid,
-      ip: remoteService.config.ip,
-      port: remoteService.config.port,
-      prefix: remoteService.config.prefix,
-      available: remoteService.available,
-      remarks: remoteService.config.remarks
-    });
+    const remoteService = iterator[1];      const item = {
+        uuid: remoteService.uuid,
+        ip: remoteService.config.ip,
+        port: remoteService.config.port,
+        prefix: remoteService.config.prefix,
+        available: remoteService.available,
+        remarks: remoteService.config.remarks
+      };
+      // In single-process mode the embedded daemon is reached via the panel origin.
+      rewriteDaemonAddressForFrontend(remoteService.uuid, item, ctx.host, systemConfig?.prefix || "");
+      result.push(item);
   }
   ctx.body = result;
 });
@@ -136,7 +140,7 @@ router.get("/remote_services", permission({ level: ROLE.ADMIN }), async (ctx) =>
       // ignore request errors
     }
     // send remote command if connection is available
-    result.push({
+    const item = {
       uuid: remoteService.uuid,
       ip: remoteService.config.ip,
       port: remoteService.config.port,
@@ -144,7 +148,10 @@ router.get("/remote_services", permission({ level: ROLE.ADMIN }), async (ctx) =>
       available: remoteService.available,
       remarks: remoteService.config.remarks,
       instances: instancesInfo
-    });
+    };
+    // In single-process mode the embedded daemon is reached via the panel origin.
+    rewriteDaemonAddressForFrontend(remoteService.uuid, item, ctx.host, systemConfig?.prefix || "");
+    result.push(item);
   }
   ctx.body = result;
 });

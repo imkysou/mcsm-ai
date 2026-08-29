@@ -1,6 +1,7 @@
 import * as fs from "fs-extra";
 import path from "path";
 import { v4 } from "uuid";
+import { getDaemonRoot } from "../embedded";
 import { $t } from "../i18n";
 import { DockerManager } from "../service/docker_service";
 import logger from "../service/log";
@@ -48,7 +49,7 @@ routerApp.on("environment/new_image", async (ctx, data) => {
     const tag = data.tag;
     // Initialize the image file directory and Dockerfile
     const uuid = v4();
-    const dockerFileDir = path.normalize(path.join(process.cwd(), "tmp", uuid));
+    const dockerFileDir = path.normalize(path.join(getDaemonRoot(), "tmp", uuid));
     if (!fs.existsSync(dockerFileDir)) fs.mkdirsSync(dockerFileDir);
 
     // write to DockerFile

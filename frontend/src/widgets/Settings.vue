@@ -198,32 +198,24 @@ const totpDriftOptions = ref([
 
 const aboutLinks = arrayFilter([
   {
-    title: "GitHub",
+    title: "MCSM-AI",
+    icon: GithubOutlined,
+    url: "https://github.com/imkysou/mcsm-ai"
+  },
+  {
+    title: "MCSManager",
     icon: GithubOutlined,
     url: "https://github.com/MCSManager/MCSManager"
   },
   {
-    title: "Discord",
-    icon: MessageOutlined,
-    url: "https://discord.gg/BNpYMVX7Cd"
-  }
-]);
-
-const contacts = arrayFilter([
-  {
-    title: t("TXT_CODE_41dd4d19"),
-    icon: BankOutlined,
-    url: "https://mcsmanager.com/"
+    title: "MSL",
+    icon: GithubOutlined,
+    url: "https://github.com/imkysou/msl"
   },
   {
-    title: t("TXT_CODE_74c3d3e5"),
-    icon: BookOutlined,
-    url: "https://docs.mcsmanager.com/"
-  },
-  {
-    title: t("TXT_CODE_26407d1f"),
-    icon: BugOutlined,
-    url: "https://github.com/MCSManager/MCSManager/issues"
+    title: "opencode",
+    icon: GithubOutlined,
+    url: "https://github.com/sst/opencode"
   }
 ]);
 
@@ -1374,26 +1366,16 @@ onUnmounted(() => {
               </a-typography-title>
               <a-typography-paragraph>
                 <p>
-                  {{ $t("TXT_CODE_d0c670df") }}
+                  {{ $t("TXT_CODE_SETTINGS_ABOUT_INTRO_1") }}
+                </p>
+              </a-typography-paragraph>
+              <a-typography-paragraph>
+                <p>
+                  {{ $t("TXT_CODE_SETTINGS_ABOUT_INTRO_2") }}
                 </p>
               </a-typography-paragraph>
               <div class="pb-4 flex">
                 <div v-for="item in aboutLinks" :key="item.url" class="mr-12 mb-12">
-                  <a :href="item.url" target="_blank">
-                    <a-button>
-                      <component :is="item.icon" />
-                      {{ item.title }}
-                    </a-button>
-                  </a>
-                </div>
-              </div>
-              <a-typography-paragraph>
-                <p>
-                  {{ $t("TXT_CODE_97433ac4") }}
-                </p>
-              </a-typography-paragraph>
-              <div class="pb-4 flex">
-                <div v-for="item in contacts" :key="item.url" class="mr-12 mb-12">
                   <a :href="item.url" target="_blank">
                     <a-button>
                       <component :is="item.icon" />

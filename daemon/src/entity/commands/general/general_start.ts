@@ -74,9 +74,29 @@ export default class GeneralStartCommand extends AbsStartCommand {
     const tmpStartCmd = await instance.parseTextParams(instance.config.startCommand);
     const commandList = commandStringToArray(tmpStartCmd);
     const commandExeFile = commandList[0];
-    const commandParameters = commandList.slice(1);
+    let commandParameters = commandList.slice(1);
     if (commandList.length === 0) {
       throw new StartupError($t("TXT_CODE_general_start.cmdEmpty"));
+    }
+
+    // MSL: mirror the standalone MSL encoding adaptation - when MSL is enabled
+    // on a Minecraft instance, force the JVM to emit UTF-8 console output
+    // (-Dfile.encoding / -Dsun.stdout.encoding / -Dsun.stderr.encoding, the same
+    // args the standalone MSL ships in its default config), plus the ANSI
+    // terminal flags. Without these, Chinese output on GBK Windows becomes
+    // mojibake and MSL/AI log parsing breaks.
+    if (instance.config.msl?.enabled && instance.config.type === Instance.TYPE_MINECRAFT_JAVA) {
+      const jarIndex = commandParameters.indexOf("-jar");
+      if (jarIndex >= 0) {
+        const inject = [
+          "-Dfile.encoding=UTF-8",
+          "-Dsun.stdout.encoding=UTF-8",
+          "-Dsun.stderr.encoding=UTF-8",
+          "-Djline.terminal=jline.AnsiTerminal",
+          "-Dterminal.ansi=true"
+        ].filter((param) => !commandParameters.includes(param));
+        if (inject.length) commandParameters.splice(jarIndex, 0, ...inject);
+      }
     }
 
     const runAsConfig = await getRunAsUserParams(instance);

@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import Editor from "@/components/Editor.vue";
 import { useKeyboardEvents } from "@/hooks/useKeyboardEvents";
+import { useAppRouters } from "@/hooks/useAppRouters";
 import { useScreen } from "@/hooks/useScreen";
 import { t } from "@/lang/i18n";
 import { fileContent } from "@/services/apis/fileManager";
 import { reportErrorMsg } from "@/tools/validator";
-import { FullscreenExitOutlined, FullscreenOutlined } from "@ant-design/icons-vue";
+import { FullscreenExitOutlined, FullscreenOutlined, RobotOutlined } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
 import { computed, ref } from "vue";
 
 const emit = defineEmits(["save"]);
+
+const { toPage } = useAppRouters();
+
+/** Ask the Agent to review / modify this exact file. */
+const askAgent = () => {
+  toPage({
+    path: "/agent",
+    query: {
+      daemonId: props.daemonId,
+      instanceUuid: props.instanceId,
+      file: path.value,
+      prompt: `Review the file ${path.value} in this workspace. Point out issues and suggest fixes.`
+    }
+  });
+};
 
 const open = ref(false);
 const openEditor = ref(false);
@@ -142,6 +158,18 @@ defineExpose({
   >
     <template #title>
       {{ dialogTitle }}
+      <a-button
+        v-if="!isPhone && props.daemonId"
+        type="text"
+        size="small"
+        class="ml-8"
+        @click="askAgent"
+      >
+        <template #icon>
+          <RobotOutlined />
+        </template>
+        {{ t("TXT_CODE_ask_agent") }}
+      </a-button>
       <a-button v-if="!isPhone" type="text" size="small" @click="fullScreen = !fullScreen">
         <template #icon>
           <FullscreenExitOutlined v-if="fullScreen" />

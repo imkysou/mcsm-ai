@@ -3,13 +3,11 @@ import http from "http";
 import https from "https";
 import { removeTrail } from "mcsmanager-common";
 import path from "path";
-import { Server, Socket } from "socket.io";
-import { GOLANG_ZIP_PATH, LOCAL_PRESET_LANG_PATH, PTY_PATH } from "./const";
-import { globalConfiguration } from "./entity/config";
+import { Server, type Socket } from "socket.io";
+import { bootDaemonServices, prepareHelperBinaries } from "./embedded";
 import { $t, i18next } from "./i18n";
 import "./service/async_task_service";
 import "./service/async_task_service/quick_install";
-import { checkDependencies } from "./service/dependencies";
 import * as koa from "./service/http";
 import logger from "./service/log";
 import * as protocol from "./service/protocol";
@@ -18,7 +16,6 @@ import InstanceSubsystem from "./service/system_instance";
 import "./service/system_visual_data";
 import uploadManager from "./service/upload_manager";
 import { getVersion, initVersionManager } from "./service/version";
-import versionAdapter from "./service/version_adapter";
 
 initVersionManager();
 const VERSION = getVersion();
@@ -41,23 +38,8 @@ _  /_/ // /_/ //  __/  / / / / / /_/ /  / / /
  + Version ${VERSION}
 `);
 
-// Initialize the global configuration service
-globalConfiguration.load();
-const config = globalConfiguration.config;
-
-// Detect whether the configuration file is from an older version and update it if so.
-versionAdapter.detectConfig();
-
-checkDependencies();
-
-// Set language
-if (fs.existsSync(LOCAL_PRESET_LANG_PATH)) {
-  i18next.changeLanguage(fs.readFileSync(LOCAL_PRESET_LANG_PATH, "utf-8"));
-} else {
-  const lang = config.language || "en_us";
-  logger.info(`LANGUAGE: ${lang}`);
-  i18next.changeLanguage(lang);
-}
+// Initialize the global configuration service and common boot steps
+const config = bootDaemonServices();
 logger.info($t("TXT_CODE_app.welcome"));
 
 // Initialize HTTP service
@@ -110,15 +92,7 @@ try {
   process.exit(-1);
 }
 
-(function initCompressModule() {
-  try {
-    fs.chmodSync(GOLANG_ZIP_PATH, 0o755);
-    fs.chmodSync(PTY_PATH, 0o755);
-  } catch (error: any) {
-    logger.error(error?.message);
-    logger.error($t("TXT_CODE_a8b245fa"));
-  }
-})();
+prepareHelperBinaries();
 
 // Initialize Websocket server
 io.on("connection", (socket: Socket) => {

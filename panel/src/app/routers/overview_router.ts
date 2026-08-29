@@ -3,6 +3,7 @@ import { GlobalVariable, systemInfo } from "mcsmanager-common";
 import os from "os";
 import { ROLE } from "../entity/user";
 import permission from "../middleware/permission";
+import { getEmbeddedServiceUuid, rewriteDaemonAddressForFrontend } from "../service/embedded_daemon";
 import { operationLogger } from "../service/operation_logger";
 import {
   BAN_IP_COUNT,
@@ -13,6 +14,7 @@ import {
 import RemoteRequest from "../service/remote_command";
 import RemoteServiceSubsystem from "../service/remote_service";
 import VisualDataSubsystem from "../service/visual_data";
+import { systemConfig } from "../setting";
 import { getVersion, specifiedDaemonVersion } from "../version";
 
 const router = new Router({ prefix: "/overview" });
@@ -37,6 +39,13 @@ router.get("/", permission({ level: ROLE.ADMIN, token: false }), async (ctx) => 
       remoteInfo.available = remoteService.available;
       remoteInfo.remarks = remoteService.config.remarks;
       remoteInfo.remoteMappings = remoteService.config.remoteMappings;
+      // In single-process mode the embedded daemon is reached via the panel origin.
+      rewriteDaemonAddressForFrontend(
+        remoteService.uuid,
+        remoteInfo,
+        ctx.host,
+        systemConfig?.prefix || ""
+      );
       return remoteInfo;
     }
   );
@@ -78,7 +87,8 @@ router.get("/", permission({ level: ROLE.ADMIN, token: false }), async (ctx) => 
       request: VisualDataSubsystem.getStatusChartArray()
     },
     remoteCount: RemoteServiceSubsystem.count(),
-    remote: remoteInfoList
+    remote: remoteInfoList,
+    localDaemonId: getEmbeddedServiceUuid() || undefined
   };
 
   ctx.body = overviewData;

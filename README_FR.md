@@ -1,3 +1,5 @@
+> **Note :** Ce fichier est une traduction du README MCSManager d'origine. La documentation actuelle de MCSM-AI se trouve dans [README.md](./README.md).
+
 <div align="center">
   <a href="https://mcsmanager.com/" target="_blank">
     <img src="./frontend/src/assets/logo.png" alt="MCSManagerLogo.png" width="510px" />    

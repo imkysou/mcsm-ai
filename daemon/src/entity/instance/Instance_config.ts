@@ -23,6 +23,21 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
   public fileCode: string = "utf-8";
   public processType: ProcessType = "general";
 
+  // Embedded Minecraft Server Listener configuration. It is only honored for Minecraft instances.
+  public msl = {
+    enabled: false,
+    debug: false,
+    autoRestart: { enable: false, delay: 3000, maxAttempts: 0 },
+    logRegexs: {
+      playerJoin: "^\\[(\\d{2}:\\d{2}:\\d{2}) INFO\\]: (\\S+) joined the game$",
+      playerQuit: "^\\[(\\d{2}:\\d{2}:\\d{2}) INFO\\]: (\\S+) left the game$",
+      playerSendMessage: "^\\[(\\d{2}:\\d{2}:\\d{2}) INFO\\]: <(\\S+)> (.+)$",
+      playerSendCommand: "^\\[(\\d{2}:\\d{2}:\\d{2}) INFO\\]: (\\S+) issued server command: /(.+)$"
+    },
+    maxLogBytes: 5 * 1024 * 1024,
+    maxLogFiles: 7
+  };
+
   /** The command used for executing the update command */
   public updateCommand: string = "";
 

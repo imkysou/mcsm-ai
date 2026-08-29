@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { openNodeSelectDialog } from "@/components/fc/index";
+import { resolveLocalNode } from "@/tools/nodes";
 import { router } from "@/config/router";
 import { useLayoutCardTools } from "@/hooks/useCardTools";
 import { QUICKSTART_METHOD } from "@/hooks/widgets/quickStartFlow";
@@ -58,7 +58,8 @@ const handleInstallAction = async (createMethod: QUICKSTART_METHOD) => {
   formData.value.createMethod = createMethod;
 
   try {
-    const selectedNode = await openNodeSelectDialog();
+    // MCSM-AI: no node picker - always the local machine node.
+    const selectedNode = await resolveLocalNode();
     if (!selectedNode) return;
     formData.value.daemonId = selectedNode.uuid;
     showCreateForm.value = true;

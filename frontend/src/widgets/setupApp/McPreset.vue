@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { openNodeSelectDialog } from "@/components/fc";
+import { resolveLocalNode } from "@/tools/nodes";
 import { router } from "@/config/router";
 import { useLayoutCardTools } from "@/hooks/useCardTools";
 import type { ComputedNodeInfo } from "@/hooks/useOverviewInfo";
@@ -87,7 +87,8 @@ const handleSelectCategory = async (item: QuickStartPackages) => {
   try {
     let node: ComputedNodeInfo | undefined;
     if (!daemonId) {
-      node = await openNodeSelectDialog();
+      // MCSM-AI: no node picker - always the local machine node.
+      node = await resolveLocalNode();
       if (!node) {
         reportErrorMsg(t("TXT_CODE_2de92a5d"));
         return;
@@ -137,7 +138,7 @@ const handleTemplateConfirm = async (instanceName: string, template: QuickStartP
         }
       }
 
-      const node = await openNodeSelectDialog(targetPlatforms);
+      const node = await resolveLocalNode();
       if (!node) {
         reportErrorMsg(t("TXT_CODE_2de92a5d"));
         return;

@@ -165,20 +165,6 @@ export function getLayoutCardPool() {
       id: getRandomId(),
       permission: ROLE.ADMIN,
       type: "StatusBlock",
-      title: t("TXT_CODE_b4a9d04a"),
-      meta: {
-        type: "node"
-      },
-      width: 3,
-      description: t("TXT_CODE_55ade942"),
-      height: LayoutCardHeight.SMALL,
-      category: NEW_CARD_TYPE.DATA
-    },
-
-    {
-      id: getRandomId(),
-      permission: ROLE.ADMIN,
-      type: "StatusBlock",
       title: t("TXT_CODE_88e9361a"),
       meta: {
         type: "instance"

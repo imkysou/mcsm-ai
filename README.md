@@ -1,339 +1,93 @@
-<div align="center">
-  <a href="https://mcsmanager.com/" target="_blank">
-    <img src="./frontend/src/assets/logo.png" alt="MCSManagerLogo.png" width="510px" />    
-  </a>
-
-  <br />
-  <br />
-
-[![--](https://img.shields.io/badge/Support%20Platform-Windows/Linux/Mac-green.svg)](https://github.com/MCSManager)
-[![Status](https://img.shields.io/badge/NPM-v8.9.14-blue.svg)](https://www.npmjs.com/)
-[![Status](https://img.shields.io/badge/Node-v16.20.2-blue.svg)](https://nodejs.org/en/download/)
-[![Status](https://img.shields.io/badge/License-Apache%202.0-red.svg)](https://github.com/MCSManager)
-
-<p align="center">
-  <a href="http://mcsmanager.com/"><img alt="Official Website" src="https://img.shields.io/badge/Site-Official Website-yellow"></a>
-  <a href="https://docs.mcsmanager.com/"><img alt="EnglishDocs" src="https://img.shields.io/badge/Docs-English Document-blue"></a>
-  <a href="https://discord.gg/BNpYMVX7Cd"><img alt="Discord" src="https://img.shields.io/badge/Discord-Join Us-5866f4"></a>
-  
-</p>
-
-<br />
-
-[English](README.md) - [简体中文](README_ZH.md) - [繁體中文](README_TW.md) - [日本語](README_JP.md) - [Deutsch](README_DE.md) - [Русский](README_RU.md) - [Spanish](README_ES.md) - [Thai](README_TH.md) - [Français](README_FR.md) - [Português BR](README_PTBR.md)
-
-</div>
-
-<br />
-
-## What is this?
-
-**MCSManager Panel** (or simply **MCSM Panel**) is a fast-deploying, distributed, multi-user, and modern web-based management panel for **`Minecraft`**, **`Steam`**, and other game servers.
-
-MCSManager has gained popularity within the **`Minecraft`** and **`Steam`** gaming communities. It enables you to manage multiple physical or virtual servers from a single platform, and offers a **secure**, **reliable**, and **granular multi-user permission system**. The MCSM Panel continues to support server administrators, operators, and independent developers, managing servers like **`Minecraft`**, **`Terraria`**, and other **`Steam`**-based games for them.
-
-MCSM also has **commercial applications** in mind, such as private server hosting and sales by **IDC service providers**. Several small and medium-sized enterprises already use the panel as a combined **server management** and **sales platform**. In addition, it supports **multi-language environments**, making it accessible to users across different countries and regions.
-
-<img width="1871" height="1342" alt="terminal" src="https://github.com/user-attachments/assets/7f6ed988-e402-4347-94ee-a0469f6658da" />
-
-<img width="1915" height="1386" alt="market" src="https://github.com/user-attachments/assets/fc276180-a826-476a-803e-a038f97115fc" />
-
-<img width="3164" height="2060" alt="1" src="https://github.com/user-attachments/assets/570d2447-66dc-4c0b-b2d2-4c3176b51d67" />
-
-<img width="3164" height="2060" alt="3" src="https://github.com/user-attachments/assets/2722cf9f-de9b-4630-b0ea-c00283791d8d" />
-
-<br />
-
+# MCSM-AI
+**MCSM-AI** is a community fork of [MCSManager](https://github.com/MCSManager/MCSManager) that adds an **AI Agent** inspired by [opencode](https://github.com/sst/opencode), plus a built-in **Minecraft Server Listener (MSL)** so the AI can operate Minecraft servers without Java plugins/mods.
+> A Minecraft / Steam game server control panel with an AI co-pilot that reads logs, fixes crashes, manages instances, writes MSL plugins and runs server ops in plain language.
+---
 ## Features
-
-1. One-click deployment of **`Minecraft`** or **`Steam`** game servers via the built-in application marketplace.
-2. Compatible with most **`Steam`**-based game servers, including **`Palworld`**, **`Squad`**, **`Project Zomboid`**, **`Terraria`**, and more.
-3. Customizable web interface with drag-and-drop card layout to build your ideal dashboard.
-4. Full **Docker Hub** image support, with built-in multi-user access and support for commercial instance hosting services.
-5. Distributed architecture, managing multiple machines from a single web panel.
-6. Lightweight technology stack. The entire project can be developed and maintained with TypeScript alone.
-7. ...and much more.
-
-<br />
-
-## Runtime Environment
-
-The control panel runs on both **`Windows`** and **`Linux`** platforms. No database installation is required. Simply install the **`Node.js`** runtime and a few basic **decompression utilities**.
-
-> Requires **[Node.js 16.20.2](https://nodejs.org/en)** or higher.
-> It is recommended to use the **latest LTS version** for best compatibility and stability.
-
-<br />
-
-## Official Documentation
-
-English: https://docs.mcsmanager.com/
-
-Chinese: https://docs.mcsmanager.com/zh_cn/
-
-<br />
-
-## Installation
-
-### Windows
-
-**For Windows systems, it comes as a ready-to-run integrated version - download and run it immediately.**
-
-Archive: https://download.mcsmanager.com/mcsmanager_windows_release.zip
-
-Double-click `start.bat` to launch both the web panel and daemon process.
-
-<br />
-
-### Linux
-
-**One-line command quick installation**
-
+- **AI Agent (opencode-style tool-calling)**
+  - Streaming responses with live **thinking (reasoning)**, **tool calls** and markdown output
+  - Provider-agnostic: any OpenAI-compatible API endpoint, **multiple models per provider**, selectable in the chat input
+  - opencode-inspired **permissions**: tools are grouped into edit / bash / instance / msl keys with wildcard patterns; approvals support **Allow once / Always allow / Reject**; \"always\" rules are persisted per session
+  - **File editing tooling**: read_file with line numbers & offset/limit, patch_file with an edit-correcting matcher (exact -> trimmed -> anchored-similarity matching, uniqueness + disproportionate-match guards), apply_patch unified diffs (atomic, multi-file), glob, search_files, write_file
+  - Server ops tools: instance list/detail/start/stop/restart/kill/command/config, schedules, **MSL tools**, safe shell_command (read-only commands run without approval), web_search (Tavily / Serper / Brave / Bing / SearXNG / DuckDuckGo), fetch_page, timewait
+  - Session management: persistent conversation history, ctx usage drawer, approvals drawer, file-change snapshots with diff & rollback
+- **Minecraft Server Listener (MSL) integration**
+  - AI can **generate the player-event log regexes from the real server terminal log** (join/quit/chat/command); generation fails with "insufficient info" instead of guessing, and curated regex templates guarantee accurate results
+  - MSL plugins are plain JavaScript in plugins/; plugin_require resolves **instance-local node_modules first** (works after npm install in the workspace)
+  - **MSL workspace terminal** in the panel dialog: run npm install etc. directly in the instance directory
+  - Chinese/GBK-safe: the runtime decodes process output with the instance encoding and auto-injects UTF-8 JVM flags (-Dfile.encoding=UTF-8 ...) like standalone MSL
+- **Local-node operation**
+  - No node selector anywhere: everything targets the **local machine node** automatically
+  - Nav entries for 终端 / 文件管理 / 镜像管理 that auto-focus the local node
+  - Node management page removed; embedded (single-process) daemon is the default runtime
+- **MCSManager compatibility** — layouts, cards, users, marketplace, schedules, file managers, terminal, audit logs, SSO… all upstream features remain.
+---
+## Quick start (development)
+Requirements: **Node.js >= 18** (20 recommended) + npm.
 ```bash
-sudo su -c "wget -qO- https://script.mcsmanager.com/setup.sh | bash"
+npm run install-dependents   # install common/daemon/panel/frontend deps
+npm run dev                  # daemon + panel + vite frontend concurrently
 ```
-
-**Usage after installation**
-
+- Panel API: http://localhost:23333
+- Web UI (vite dev): http://localhost:5173/
+- Single-process embedded mode is automatic: the panel boots the bundled daemon itself.
+Run them separately if needed:
 ```bash
-systemctl start mcsm-{web,daemon} # Start panel
-systemctl stop mcsm-{web,daemon}  # Stop panel
+npm run daemon     # daemon dev (hot reload)
+npm run panel      # panel dev (hot reload, port 23333)
+npm run frontend   # vite dev server
 ```
-
-- Script only applies to Ubuntu/Centos/Debian/Archlinux
-- Panel code and runtime environment are automatically installed in the `/opt/mcsmanager/` directory.
-
-<br />
-
-**Linux Manual Installation**
-
-- If the one-click installation method doesn't work, you can install MCSManager manually by following the steps below:
-
+---
+## Build & deploy
+### Production package (recommended)
 ```bash
-# Step 1: Navigate to the installation directory (create it if it doesn't exist)
-cd /opt/
-
-# Step 2: (Optional) Download and install Node.js if it's not already installed
-wget https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-x64.tar.xz
-tar -xvf node-v20.11.0-linux-x64.tar.xz
-
-# Add Node.js and npm to the system path
-ln -s /opt/node-v20.11.0-linux-x64/bin/node /usr/bin/node
-ln -s /opt/node-v20.11.0-linux-x64/bin/npm /usr/bin/npm
-
-# Step 3: Prepare the MCSManager installation directory
-mkdir /opt/mcsmanager/
-cd /opt/mcsmanager/
-
-# Step 4: Download the latest MCSManager release
-wget https://github.com/MCSManager/MCSManager/releases/latest/download/mcsmanager_linux_release.tar.gz
-tar -zxf mcsmanager_linux_release.tar.gz
-
-# Step 5: Install dependencies
-chmod 775 install.sh
-./install.sh
-
-# Step 6: Open two terminal windows or use screen/tmux
-
-# In the first terminal: start the daemon
-./start-daemon.sh
-
-# In the second terminal: start the web service
-./start-web.sh
-
-# Step 7: Access the panel in your browser
-# Replace <public IP> with your server's actual IP address
-http://<public IP>:23333/
-
-# The web interface will automatically detect and connect to the local daemon in most cases.
+# Linux / macOS
+./build.sh
+# Windows
+build.bat
 ```
-
-> The above steps do **not** register the panel as a system service.  
-> To keep it running in the background, you’ll need to use tools like **`screen`** or **`tmux`**.
-
-If you prefer to run MCSManager as a system service, please refer to the official documentation for setup instructions.
-
-<br />
-
-### Mac OS
-
+Output production-code/:
+```
+production-code/
+├── start.sh / start.bat    # one-command start (single-process: panel + embedded daemon)
+├── web/                    # panel (self-contained app.js) + public/ (built frontend)
+└── daemon/
+    ├── app.js              # stand-alone daemon (classic split deployment)
+    └── production/embedded.js  # embedded daemon loaded by the panel
+```
+Start:
 ```bash
-
-# Step 1: Install Node.js (skip if already installed)
-# It's recommended to use the latest LTS version
-brew install node
-node -v
-npm -v
-
-# Step 2: Download the latest release using curl
-curl -L https://github.com/MCSManager/MCSManager/releases/latest/download/mcsmanager_linux_release.tar.gz -o mcsmanager_linux_release.tar.gz
-
-# Step 3: Extract the downloaded archive
-tar -zxf mcsmanager_linux_release.tar.gz
-
-# Step 4: Enter the extracted directory
-cd mcsmanager
-
-# Step 5: Make the installer executable and run it
-chmod 775 install.sh
-./install.sh
-
-# Step 6: Open two terminal windows or use screen/tmux to run services in parallel
-
-# In the first terminal: start the daemon
-./start-daemon.sh
-
-# In the second terminal: start the web service
-./start-web.sh
-
-# Access the panel at: http://localhost:23333/
-# The web interface will typically auto-detect and connect to the local daemon.
+cd production-code && ./start.sh      # or start.bat on Windows
 ```
-
-<br />
-
-### Docker Installation
-
-Install the panel using docker-compose.yml, note that you need to modify all `<CHANGE_ME_TO_INSTALL_PATH>` in it to your actual installation directory.
-
-```yml
-services:
-  web:
-    image: githubyumao/mcsmanager-web:latest
-    ports:
-      - "23333:23333"
-    volumes:
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
-      - <CHANGE_ME_TO_INSTALL_PATH>/web/data:/opt/mcsmanager/web/data
-      - <CHANGE_ME_TO_INSTALL_PATH>/web/logs:/opt/mcsmanager/web/logs
-      - <CHANGE_ME_TO_INSTALL_PATH>/web/public/upload_files:/opt/mcsmanager/web/public/upload_files
-
-  daemon:
-    image: githubyumao/mcsmanager-daemon:latest
-    restart: unless-stopped
-    ports:
-      - "24444:24444"
-    environment:
-      - MCSM_DOCKER_WORKSPACE_PATH=<CHANGE_ME_TO_INSTALL_PATH>/daemon/data/InstanceData
-    volumes:
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
-      - <CHANGE_ME_TO_INSTALL_PATH>/daemon/data:/opt/mcsmanager/daemon/data
-      - <CHANGE_ME_TO_INSTALL_PATH>/daemon/logs:/opt/mcsmanager/daemon/logs
-      - /var/run/docker.sock:/var/run/docker.sock
+- **Single-port**: the panel serves the daemon under /daemon internally — no second process, no node selection, NAT friendly
+- Bundles are self-contained (BUNDLE=1): **no npm install needed on the server**
+- Default port **23333** (change in panel settings)
+### First-run setup
+1. Open the panel -> choose language -> create the admin account
+2. Go to **AI Agent -> 模型提供商** and add a provider:
+   - **API 地址**: any OpenAI-compatible endpoint, e.g. https://api.openai.com/v1
+   - **模型列表**: one model id per line (the first becomes the default), e.g. gpt-4o-mini
+   - **API Key**; optional 推理 (reasoning), 上下文窗口, 最大令牌数
+   - Optional **搜索地址 + 搜索 API Key** for web_search:
+     - Tavily: https://api.tavily.com/search + your key (free tier ~1000/mo)
+     - keyless: SearXNG public instance (https://searx.be/search) or DuckDuckGo (https://duckduckgo.com/html/)
+3. Create/select an instance workspace and start chatting — e.g. @fix 服务器崩了，看下日志, @msl 写一个清理掉落物的插件
+### MSL quick guide
+- Enable **MSL** in the target Minecraft instance (功能组 -> MSL)
+- In MSL config, use **AI 生成** for each event regex — the AI reads the **current terminal log** and only generates a regex it can verify; trigger the event in-game first
+- Write plugins as JS in plugins/; open the **终端** in the MSL dialog to npm install dependencies
+---
+## Project layout
 ```
-
-Note (Rootless Docker on Linux): the daemon supports `DOCKER_HOST`. If your Docker daemon runs in rootless mode, the socket is usually at `/run/user/<uid>/docker.sock` instead of `/var/run/docker.sock`. In that case, replace the default socket mount with the rootless socket and set `DOCKER_HOST`, for example:
-
-```yml
-daemon:
-  environment:
-    - DOCKER_HOST=unix:///run/user/1000/docker.sock
-  volumes:
-    - /run/user/1000/docker.sock:/run/user/1000/docker.sock
+├── panel/     # Web panel (Koa) - agent engine, providers, approvals, layouts
+├── daemon/    # Daemon (instance processes, MSL runtime, embedded mode)
+├── frontend/  # Vue 3 + ant-design-vue UI (Agent page, MSL dialogs...)
+├── common/    # shared utilities
+└── languages/ # i18n packs (12 languages)
 ```
-
-Replace `1000` with your actual UID (`id -u`).
-
-Enable using docker-compose.
-
-```bash
-mkdir -p <CHANGE_ME_TO_INSTALL_PATH>
-cd <CHANGE_ME_TO_INSTALL_PATH>
-vim docker-compose.yml # Write the above docker-compose.yml content here
-docker compose pull && docker compose up -d
-```
-
-Note: After Docker installation, the Web side may no longer be able to automatically connect to the Daemon.
-
-At this point, if you enter the panel, you should see some errors because the Web side has not successfully connected to the daemon side, you need to create a new node to connect them together.
-
-<br />
-
-## Contributing Code
-
-Before contributing code to this project, please make sure to review the following:
-
-- **Must read:** [Issue #599 – Contribution Guidelines](https://github.com/MCSManager/MCSManager/issues/599)
-- Please maintain the existing code structure and formatting, **do not apply unnecessary or excessive formatting changes.**
-- All submitted code **must follow internationalization (i18n) standards**.
-
-### Bug Reports
-
-We welcome all bug reports and feedback. Your contributions help us improve the project.
-
-If you encounter any issues, please report them via the [GitHub Issues](https://github.com/MCSManager/MCSManager/issues) page, and we’ll address them as soon as possible.
-
-For serious **security vulnerabilities** that should not be disclosed publicly, please contact us directly at: **support@mcsmanager.com**
-
-Once resolved, we will credit the discoverer in the relevant code or release notes.
-
-### Acknowledgements
-
-Thanks to the following developers for making important contributions to the security testing of MCSManager!
-
-> [@Cuo256](https://github.com/Cuo256), [@xiaosu](https://github.com/xiaosuawa), [@tianjiefeifei](https://github.com/tianjiefeifei), [9Bakabaka](https://github.com/9Bakabaka), [Yudai Shibata](https://github.com/yudai-shibata)
-
-<br />
-
-## Development
-
-### Project Structure
-
-The project comprises three core modules:
-
-- Daemon backend (`daemon` directory)
-- Web backend (`panel` directory)
-- Web frontend (`frontend` directory)
-
-**Web Backend Responsibilities:**
-
-- User management
-- Node connectivity
-- Authentication and authorization
-- API services
-
-**Daemon Backend Responsibilities:**
-
-- Process management for server instances
-- Docker container operations
-- File system management
-- Real-time terminal access
-
-**Web Frontend Responsibilities:**
-
-- User interface implementation
-- Web backend integration
-- Direct node communication for optimized performance
-
-### Setting Up Development Environment
-
-See: [DEVELOPMENT.md](./DEVELOPMENT.md)
-
-<br />
-
-## Browser Compatibility
-
-MCSManager supports all major modern browsers, including:
-
-- `Chrome`
-- `Firefox`
-- `Safari`
-- `Opera`
-
-**Internet Explorer (IE)** is no longer supported.
-
-<br />
-
-## Contributors
-
-<a href="https://openomy.com/MCSManager/MCSManager" target="_blank" style="display: block; width: 100%;" align="center">
-  <img src="https://openomy.com/svg?repo=MCSManager/MCSManager&chart=bubble&latestMonth=12" target="_blank" alt="Contribution Leaderboard" style="display: block; width: 100%;" />
-</a>
-
 ## License
-
-This project is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-
-&copy; 2025 MCSManager. All rights reserved.
+Apache License 2.0 (inherited from MCSManager). See LICENSE.
+## Links
+- GitHub: https://github.com/imkysou/mcsm-ai
+- MCSManager: https://github.com/MCSManager/MCSManager
+- MSL (MinecraftServerListener): https://github.com/imkysou/msl
+- opencode: https://github.com/sst/opencode

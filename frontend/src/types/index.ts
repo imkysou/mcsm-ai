@@ -266,6 +266,7 @@ export interface PanelStatus {
   settings: {
     businessMode: boolean;
     businessId: string;
+    singleUserMode?: boolean;
     // Only returned for logged-in users
     canFileManager?: boolean;
     allowUsePreset?: boolean;

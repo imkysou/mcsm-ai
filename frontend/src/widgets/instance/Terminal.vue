@@ -5,6 +5,7 @@ import IconBtn from "@/components/IconBtn.vue";
 import TerminalCore from "@/components/TerminalCore.vue";
 import TerminalTopTags from "@/components/TerminalTopTags.vue";
 import { useLayoutCardTools } from "@/hooks/useCardTools";
+import { useAppRouters } from "@/hooks/useAppRouters";
 import { INSTANCE_TYPE_TRANSLATION, verifyEULA } from "@/hooks/useInstance";
 import { useScreen } from "@/hooks/useScreen";
 import { t } from "@/lang/i18n";
@@ -26,6 +27,7 @@ import {
   CloudDownloadOutlined,
   CloudServerOutlined,
   DownOutlined,
+  ExperimentOutlined,
   InfoCircleOutlined,
   InteractionOutlined,
   LaptopOutlined,
@@ -33,10 +35,12 @@ import {
   MoneyCollectOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  RedoOutlined
+  RedoOutlined,
+  RobotOutlined
 } from "@ant-design/icons-vue";
 import { Modal } from "ant-design-vue";
-import { computed, h, onUnmounted } from "vue";
+import { computed, h, onUnmounted, ref } from "vue";
+import MslConfigDialog from "./MslConfigDialog.vue";
 import { GLOBAL_INSTANCE_NAME } from "../../config/const";
 import { useTerminal, type UseTerminalHook } from "../../hooks/useTerminal";
 import { arrayFilter } from "../../tools/array";
@@ -48,6 +52,27 @@ const props = defineProps<{
 const { isPhone } = useScreen();
 const { state, isAdmin } = useAppStateStore();
 const { getMetaOrRouteValue } = useLayoutCardTools(props.card);
+
+// MSL dialog
+const mslDialogOpen = ref(false);
+const isMinecraftInstance = computed(
+  () =>
+    typeof instanceInfo.value?.config?.type === "string" &&
+    instanceInfo.value.config.type.startsWith("minecraft/")
+);
+
+// Ask Agent: deep-link into the Agent page bound to this instance workspace.
+const { toPage } = useAppRouters();
+const openAgent = () => {
+  toPage({
+    path: "/agent",
+    query: {
+      instanceUuid: instanceId ?? "",
+      daemonId: daemonId ?? "",
+      prompt: "Check the latest logs of this instance and report the status"
+    }
+  });
+};
 
 // The `useTerminal` is shared by this component and `TerminalCore`.
 // Please do not initialize `useTerminal` in this component; all initialization logic should be placed in its child component `TerminalCore.vue`.
@@ -243,6 +268,16 @@ const instanceOperations = computed(() =>
       },
       props: {},
       condition: () => !!instanceInfo.value?.config?.category
+    },
+    {
+      title: t("TXT_CODE_msl_title"),
+      icon: ExperimentOutlined,
+      noConfirm: true,
+      click: () => {
+        mslDialogOpen.value = true;
+      },
+      props: {},
+      condition: () => isMinecraftInstance.value && isAdmin.value
     }
   ])
 );
@@ -402,6 +437,9 @@ onUnmounted(() => {
       >
         <IconBtn :icon="item.icon" :title="item.title" @click="item.click"></IconBtn>
       </span>
+      <span v-if="isAdmin" class="mr-2">
+        <IconBtn :icon="RobotOutlined" :title="t('TXT_CODE_ask_agent')" @click="openAgent"></IconBtn>
+      </span>
       <a-dropdown>
         <template #overlay>
           <a-menu>
@@ -429,6 +467,12 @@ onUnmounted(() => {
       />
     </template>
   </CardPanel>
+
+  <MslConfigDialog
+    v-model:open="mslDialogOpen"
+    :daemon-id="daemonId || ''"
+    :instance-uuid="instanceId || ''"
+  />
 </template>
 
 <style lang="scss" scoped>

@@ -11,6 +11,7 @@ import type { LayoutCard } from "@/types";
 import { FileExclamationOutlined } from "@ant-design/icons-vue";
 import { onMounted, ref } from "vue";
 
+
 const props = defineProps<{
   card: LayoutCard;
 }>();
@@ -154,6 +155,7 @@ onMounted(async () => {
         </CardPanel>
       </a-col>
     </a-row>
+
   </div>
 </template>
 

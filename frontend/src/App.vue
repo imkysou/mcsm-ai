@@ -36,7 +36,7 @@ const designModeNavStyle = computed(() => {
 });
 
 onMounted(async () => {
-  setLoadingTitle("Loading application settings...");
+  setLoadingTitle((window as any).loadingI18n("settings"));
   await initAppTheme();
   closeAppLoading();
 });

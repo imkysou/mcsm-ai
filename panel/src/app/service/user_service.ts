@@ -16,7 +16,13 @@ class UserSubsystem {
   public readonly objects: Map<string, User> = new Map();
 
   async initialize() {
-    for (const uuid of await Storage.getStorage().list("User")) {
+    const userIds = await Storage.getStorage().list("User");
+    // MCSM-AI is intentionally single-user. Keep the first persisted account
+    // as the sole owner and remove legacy extra accounts during startup.
+    if (userIds.length > 1) {
+      for (const uuid of userIds.slice(1)) await Storage.getStorage().delete("User", uuid);
+    }
+    for (const uuid of userIds.slice(0, 1)) {
       const user = (await Storage.getStorage().load("User", User, uuid)) as User;
       this.objects.set(uuid, user);
     }
@@ -24,6 +30,7 @@ class UserSubsystem {
   }
 
   async create(config: IUser): Promise<User> {
+    if (this.objects.size > 0) throw new Error("MCSM-AI only supports one user account");
     const newUuid = v4().replace(/-/gim, "");
     // Initialize necessary user data
     const instance = new User();

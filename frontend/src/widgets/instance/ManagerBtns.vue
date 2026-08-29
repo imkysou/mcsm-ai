@@ -23,7 +23,8 @@ import {
   FieldTimeOutlined,
   FolderOpenOutlined,
   UsbOutlined,
-  UsergroupDeleteOutlined
+  UsergroupDeleteOutlined,
+  ExperimentOutlined
 } from "@ant-design/icons-vue";
 
 import { computed, ref, watch } from "vue";
@@ -38,8 +39,15 @@ import McPingSettings from "./dialogs/McPingSettings.vue";
 import PingConfig from "./dialogs/PingConfig.vue";
 import RconSettings from "./dialogs/RconSettings.vue";
 import TermConfig from "./dialogs/TermConfig.vue";
+import MslConfigDialog from "./MslConfigDialog.vue";
 
 const terminalConfigDialog = ref<InstanceType<typeof TermConfig>>();
+const mslDialogOpen = ref(false);
+const isMinecraftInstance = computed(
+  () =>
+    typeof instanceInfo.value?.config?.type === "string" &&
+    instanceInfo.value.config.type.startsWith("minecraft/")
+);
 const rconSettingsDialog = ref<InstanceType<typeof RconSettings>>();
 const mcSettingsDialog = ref<InstanceType<typeof McPingSettings>>();
 const javaManagerDialog = ref<InstanceType<typeof JavaManager>>();
@@ -139,6 +147,14 @@ const btns = computed(() => {
           }
         });
       }
+    },
+    {
+      title: t("TXT_CODE_msl_title"),
+      icon: ExperimentOutlined,
+      click: () => {
+        mslDialogOpen.value = true;
+      },
+      condition: () => isMinecraftInstance.value && isAdmin.value
     },
     {
       title: t("TXT_CODE_ae533703"),
@@ -344,6 +360,12 @@ watch(instanceInfo, (cfg, oldCfg) => {
     :daemon-id="daemonId"
     :instance-id="instanceId"
     @update="refreshInstanceInfo"
+  />
+
+  <MslConfigDialog
+    v-model:open="mslDialogOpen"
+    :daemon-id="daemonId || ''"
+    :instance-uuid="instanceId || ''"
   />
 </template>
 

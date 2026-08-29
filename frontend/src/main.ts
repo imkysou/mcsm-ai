@@ -7,7 +7,7 @@ function handleLoadingError(error: any) {
   console.error("Init app error:", error);
   const errorMessage = String(error?.message || error);
   if (errorMessage.toLowerCase().includes("request failed with status code 500")) {
-    setAppLoadingError("The backend is currently unavailable, please try again later.");
+    setAppLoadingError((window as any).loadingI18n("errorBackend"));
     return;
   }
   setAppLoadingError(errorMessage);
@@ -16,15 +16,15 @@ function handleLoadingError(error: any) {
 async function initApp() {
   try {
     const { state, updatePanelStatus } = useAppStateStore();
-    setLoadingTitle("Initializing Application...");
+    setLoadingTitle((window as any).loadingI18n("initialize"));
     await updatePanelStatus();
-    setLoadingTitle("Initializing Language...");
+    setLoadingTitle((window as any).loadingI18n("language"));
     await initI18n(state.language);
-    setLoadingTitle("Initializing Layout...");
+    setLoadingTitle((window as any).loadingI18n("layout"));
     await initLayoutConfig();
-    setLoadingTitle("Downloading JavaScript Files...");
+    setLoadingTitle((window as any).loadingI18n("download"));
     const module = await import("./mount");
-    setLoadingTitle("Rendering Application...");
+    setLoadingTitle((window as any).loadingI18n("render"));
     await module.mountApp();
   } catch (error: any) {
     handleLoadingError(error);

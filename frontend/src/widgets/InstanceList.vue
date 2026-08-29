@@ -39,7 +39,7 @@ import { Modal, notification } from "ant-design-vue";
 import { throttle } from "lodash";
 import type { InstanceMoreDetail } from "../hooks/useInstance";
 import { useInstanceMoreDetail } from "../hooks/useInstance";
-import { computeNodeName } from "../tools/nodes";
+import { computeNodeName, resolveLocalNode } from "../tools/nodes";
 import type { NodeStatus } from "../types/index";
 import InstanceLine from "./instance/InstanceLine.vue";
 import Shortcut from "./instance/Shortcut.vue";
@@ -91,15 +91,9 @@ const initNodes = async () => {
   if (nodes.value?.length === 0) {
     return reportErrorMsg(t("TXT_CODE_e3d96a26"));
   }
-  if (localStorage.getItem("pageSelectedRemote")) {
-    currentRemoteNode.value = JSON.parse(localStorage.pageSelectedRemote);
-    if (isGlobalDaemonMode.value) return;
-    if (!nodes.value?.some((item) => item.uuid === currentRemoteNode.value?.uuid)) {
-      currentRemoteNode.value = undefined;
-    }
-  } else {
-    currentRemoteNode.value = nodes.value?.[0];
-  }
+  // MCSM-AI: always use the local machine node - no node picker on the home page.
+  const local = await resolveLocalNode();
+  currentRemoteNode.value = local && local.uuid ? local : nodes.value?.[0];
 };
 
 const tableTreeData = ref<any[]>([]);
@@ -272,11 +266,12 @@ const toAppDetailPage = (daemonId: string, instanceId: string) => {
 
 const handleChangeNode = async (item: NodeStatus) => {
   try {
-    currentRemoteNode.value = item;
+    // MCSM-AI keeps the local node; ignore external node switches.
+    const local = await resolveLocalNode();
+    currentRemoteNode.value = local && local.uuid ? local : item;
     clearTags();
     selectedInstance.value = [];
     await initInstancesData(true);
-    localStorage.setItem("pageSelectedRemote", JSON.stringify(item));
   } catch (err: any) {
     console.error(err.message);
   }
@@ -300,11 +295,7 @@ const toMarketPage = () => {
   });
 };
 
-const toNodesPage = () => {
-  router.push({
-    path: "/node"
-  });
-};
+
 
 const multipleMode = ref(false);
 const selectedInstance = ref<InstanceMoreDetail[]>([]);
@@ -543,48 +534,6 @@ onMounted(async () => {
             </a-typography-title>
           </template>
           <template #right>
-            <a-dropdown>
-              <template #overlay>
-                <a-menu>
-                  <a-menu-item :key="ALL_DAEMON_MODE" @click="handleChangeNode(globalNode)">
-                    <AppstoreOutlined />
-                    {{ t("TXT_CODE_a60a421a") }}
-                  </a-menu-item>
-                  <a-menu-divider />
-                  <a-menu-item
-                    v-for="item in nodes"
-                    :key="item.uuid"
-                    :disabled="!item.available"
-                    @click="handleChangeNode(item)"
-                  >
-                    <DatabaseOutlined v-if="item.available" />
-                    <FrownOutlined v-else />
-                    {{ computeNodeName(item.ip, item.available, item.remarks) }}
-                  </a-menu-item>
-                  <a-menu-divider />
-                  <a-menu-item key="toNodesPage" @click="toNodesPage()">
-                    <FormOutlined />
-                    {{ t("TXT_CODE_28e53fed") }}
-                  </a-menu-item>
-                </a-menu>
-              </template>
-              <a-button style="max-width: 200px; min-width: 180px; overflow: hidden">
-                <a-typography-text
-                  style="max-width: 145px"
-                  :ellipsis="{ ellipsis: true }"
-                  :content="
-                    isGlobalDaemonMode
-                      ? t('TXT_CODE_a60a421a')
-                      : computeNodeName(
-                          currentRemoteNode?.ip || '',
-                          currentRemoteNode?.available || true,
-                          currentRemoteNode?.remarks
-                        )
-                  "
-                />
-                <DownOutlined />
-              </a-button>
-            </a-dropdown>
             <a-button
               type="primary"
               :disabled="!currentRemoteNode?.available"

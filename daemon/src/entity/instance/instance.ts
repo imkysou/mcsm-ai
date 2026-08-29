@@ -7,6 +7,7 @@ import path from "path";
 import { CircularBuffer } from "../../common/string_cache";
 import StorageSubsystem from "../../common/system_storage";
 import { STEAM_CMD_PATH } from "../../const";
+import { getDaemonRoot } from "../../embedded";
 import { $t } from "../../i18n";
 import javaManager from "../../service/java_manager";
 import logger from "../../service/log";
@@ -19,6 +20,7 @@ import InstanceConfig from "./Instance_config";
 import { IInstanceProcess } from "./interface";
 import { LifeCycleTaskManager } from "./life_cycle";
 import { IExecutable, PresetCommandManager } from "./preset";
+import { MslRuntime } from "../../service/msl_runtime";
 
 export const GLOBAL_INSTANCE_KEY = "__MCSM_GLOBAL_INSTANCE__";
 export const GLOBAL_INSTANCE_UUID_KEY = "global0001";
@@ -89,6 +91,7 @@ export default class Instance extends EventEmitter {
   public startTimestamp: number = 0;
   public asynchronousTask?: IExecutable | null;
   public openFrp?: OpenFrp;
+  public msl?: MslRuntime;
 
   public readonly lifeCycleTaskManager = new LifeCycleTaskManager(this);
   public readonly presetCommandManager = new PresetCommandManager(this);
@@ -128,6 +131,7 @@ export default class Instance extends EventEmitter {
     this.lock = false;
 
     this.config = config;
+    this.initializeMsl();
 
     this.outputBuffer = new CircularBuffer<string>(
       globalConfiguration.config.outputBufferSize || 256
@@ -149,6 +153,12 @@ export default class Instance extends EventEmitter {
         throw new Error($t("TXT_CODE_instanceConf.cantModifyInstanceType"));
       configureEntityParams(this.config, cfg, "type", String);
       this.forceExec(new FunctionDispatcher());
+    }
+
+    if (cfg?.msl) {
+      if (cfg.msl.enabled && !(this.config.type === Instance.TYPE_MINECRAFT_JAVA || this.config.type === Instance.TYPE_MINECRAFT_BEDROCK)) throw new Error("MSL is only available for Minecraft instances");
+      this.config.msl = { ...this.config.msl, ...cfg.msl, logRegexs: { ...this.config.msl.logRegexs, ...(cfg.msl.logRegexs || {}) } };
+      this.initializeMsl();
     }
 
     if (cfg?.enableRcon != null && cfg?.enableRcon !== this.config.enableRcon) {
@@ -359,6 +369,14 @@ export default class Instance extends EventEmitter {
 
   // function that must be executed after the instance starts
   // Trigger the open event and bind the data and exit events, etc.
+  private initializeMsl() {
+    const minecraft = this.config.type === Instance.TYPE_MINECRAFT_JAVA || this.config.type === Instance.TYPE_MINECRAFT_BEDROCK;
+    if (!minecraft || !this.config.msl?.enabled) { this.msl?.dispose(); this.msl = undefined; return; }
+    this.msl?.dispose();
+    this.msl = new MslRuntime(this.absoluteCwdPath(), this.config.msl);
+    this.msl.on("log", (line) => this.emit("data", "[MSL] " + String(line).replace(/\\r/g, "") + "\n"));
+  }
+
   started(process: IInstanceProcess) {
     this.config.lastDatetime = Date.now();
     const outputCode = this.config.terminalOption.pty ? "utf-8" : this.config.oe;
@@ -367,6 +385,10 @@ export default class Instance extends EventEmitter {
     });
     process.on("exit", (code: number) => this.stopped(code));
     this.process = process;
+    this.initializeMsl();
+    // Pass the same output codec used by the terminal decoder so MSL parses
+    // GBK/Chinese server output correctly (otherwise mojibake).
+    this.msl?.attach(process, outputCode);
     this.instanceStatus = Instance.STATUS_RUNNING;
     this.emit("open", this);
 
@@ -389,6 +411,8 @@ export default class Instance extends EventEmitter {
     // Close all lifecycle tasks
     this.stopOutputLoop();
     this.println("INFO", $t("TXT_CODE_70ce6fbb"));
+    this.msl?.dispose();
+    this.msl = undefined;
     this.releaseResources();
     if (this.instanceStatus != Instance.STATUS_STOP) {
       this.instanceStatus = Instance.STATUS_STOP;
@@ -399,8 +423,37 @@ export default class Instance extends EventEmitter {
 
     this.lifeCycleTaskManager.execLifeCycleTask(0);
 
-    // If automatic restart is enabled, the startup operation is performed immediately
-    if (!this.config.eventTask.ignore && this.config.eventTask.autoRestart) {
+    // Auto-restart policy:
+    //  - Minecraft instances with MSL enabled: restart is controlled by the
+    //    MSL config (msl.autoRestart) so the admin decides there. The native
+    //    eventTask.autoRestart is ignored for these instances.
+    //  - All other instances: keep the native eventTask.autoRestart behavior.
+    const isMinecraft = this.config.type === Instance.TYPE_MINECRAFT_JAVA || this.config.type === Instance.TYPE_MINECRAFT_BEDROCK;
+    const mslManaged = isMinecraft && Boolean(this.config.msl?.enabled);
+    if (mslManaged && !this.config.eventTask.ignore) {
+      const mslAr = this.config.msl?.autoRestart;
+      if (mslAr?.enable) {
+        const maxTimes = Number(mslAr.maxAttempts) || 0;
+        if (maxTimes === 0 || this.autoRestartCount < maxTimes) {
+          const delay = Math.max(0, Number(mslAr.delay) || 3000);
+          this.println($t("TXT_CODE_instanceConf.info"), $t("TXT_CODE_instanceConf.autoRestart"));
+          setTimeout(() => {
+            this.execPreset("start")
+              .then(() => {
+                this.autoRestartCount++;
+              })
+              .catch((err) => {
+                this.println(
+                  $t("TXT_CODE_instanceConf.error"),
+                  $t("TXT_CODE_instanceConf.autoRestartErr", { err: err })
+                );
+              });
+          }, delay);
+        } else {
+          this.println($t("TXT_CODE_instanceConf.error"), $t("TXT_CODE_894b8e52"));
+        }
+      }
+    } else if (!this.config.eventTask.ignore && this.config.eventTask.autoRestart) {
       const maxAutoRestartCount = this.config.eventTask.autoRestartMaxTimes;
       if (maxAutoRestartCount == -1 || this.autoRestartCount < maxAutoRestartCount) {
         this.execPreset("start")
@@ -490,7 +543,9 @@ export default class Instance extends EventEmitter {
   absoluteCwdPath() {
     if (!this.config || !this.config.cwd) throw new Error("Instance config error, cwd is Null!");
     if (path.isAbsolute(this.config.cwd)) return path.normalize(this.config.cwd);
-    return path.normalize(path.join(process.cwd(), this.config.cwd));
+    // Use the captured daemon root instead of process.cwd() so that relative
+    // instance paths keep working when embedded in the panel process.
+    return path.normalize(path.join(getDaemonRoot(), this.config.cwd));
   }
 
   // execute the preset command action

@@ -37,7 +37,13 @@ function externalNativeNodeBinary({ request }, callback) {
  */
 module.exports = {
   mode: "production",
-  entry: "./src/app.ts",
+  entry: {
+    app: { import: "./src/app.ts" },
+    // Embeddable bootstrap required by the panel when running in
+    // single-process mode (panel + daemon on one port).
+    // Set library:commonjs2 so the panel can require() the bundle.
+    embedded: { import: "./src/embedded.ts", library: { type: "commonjs2" } }
+  },
   module: {
     rules: [
       {
@@ -72,7 +78,7 @@ module.exports = {
         })
       ],
   output: {
-    filename: "app.js",
+    filename: "[name].js",
     path: path.resolve(__dirname, "production")
   },
   resolve: {

@@ -1,3 +1,5 @@
+> **註記：** 此檔案為原始 MCSManager README 之翻譯。MCSM-AI 目前文件請參閱 [README.md](./README.md)。
+
 <div align="center">
   <a href="https://mcsmanager.com/" target="_blank">
     <img src="./frontend/src/assets/logo.png" alt="MCSManagerLogo.png" width="510px" />    

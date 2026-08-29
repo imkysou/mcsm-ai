@@ -12,6 +12,7 @@ import { timeUuid } from "../service/password";
 import { isHaveInstanceByUuid, isTopPermissionByUuid } from "../service/permission_service";
 import RemoteRequest from "../service/remote_command";
 import RemoteServiceSubsystem from "../service/remote_service";
+import { rewriteDaemonAddressForFrontend } from "../service/embedded_daemon";
 import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/files" });
@@ -473,7 +474,15 @@ router.all(
       const fileName = String(ctx.query.file_name);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
-      const addr = remoteService.config.fullAddr;
+      // In single-process mode, rewrite the advertised daemon address so the
+      // browser downloads through the panel origin (same port).
+      const addrInfo = {
+        ip: remoteService.config.ip,
+        port: remoteService.config.port,
+        prefix: remoteService.config.prefix
+      };
+      rewriteDaemonAddressForFrontend(daemonId, addrInfo, ctx.host, systemConfig?.prefix || "");
+      const addr = `${addrInfo.ip}:${addrInfo.port}${addrInfo.prefix ?? ""}`;
       const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {
@@ -513,7 +522,15 @@ router.all(
       const uploadDir = String(ctx.query.upload_dir);
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId);
       if (!remoteService) throw new Error($t("TXT_CODE_dd559000") + ` Daemon ID: ${daemonId}`);
-      const addr = remoteService.config.fullAddr;
+      // In single-process mode, rewrite the advertised daemon address so the
+      // browser uploads through the panel origin (same port).
+      const addrInfo = {
+        ip: remoteService.config.ip,
+        port: remoteService.config.port,
+        prefix: remoteService.config.prefix
+      };
+      rewriteDaemonAddressForFrontend(daemonId, addrInfo, ctx.host, systemConfig?.prefix || "");
+      const addr = `${addrInfo.ip}:${addrInfo.port}${addrInfo.prefix ?? ""}`;
       const remoteMappings = remoteService.config.getConvertedRemoteMappings();
       const password = timeUuid();
       await new RemoteRequest(remoteService).request("passport/register", {

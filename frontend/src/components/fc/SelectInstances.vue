@@ -3,7 +3,7 @@ import { router } from "@/config/router";
 import { useScreen } from "@/hooks/useScreen";
 import { t } from "@/lang/i18n";
 import { remoteInstances, remoteNodeList } from "@/services/apis";
-import { computeNodeName } from "@/tools/nodes";
+import { computeNodeName, resolveLocalNode } from "@/tools/nodes";
 import { reportErrorMsg } from "@/tools/validator";
 import type { MountComponent, NodeStatus } from "@/types";
 import type { AntColumnsType, AntTableCell } from "@/types/ant";
@@ -80,11 +80,9 @@ const initNodes = async () => {
   if (!nodes.value?.length) {
     return reportErrorMsg(t("TXT_CODE_e3d96a26"));
   }
-  if (localStorage.getItem("pageSelectedRemote")) {
-    currentRemoteNode.value = JSON.parse(localStorage.pageSelectedRemote);
-  } else {
-    currentRemoteNode.value = nodes.value[0];
-  }
+  // MCSM-AI: always target the local machine node.
+  const local = await resolveLocalNode();
+  currentRemoteNode.value = local && local.uuid ? local : nodes.value[0];
 };
 
 const initInstancesData = async () => {
@@ -144,13 +142,6 @@ const handleChangeNode = async (item: NodeStatus) => {
   }
 };
 
-const toNodesPage = () => {
-  router.push({
-    path: "/node"
-  });
-  cancel();
-};
-
 onMounted(async () => {
   open.value = true;
   await initInstancesData();
@@ -168,39 +159,7 @@ onMounted(async () => {
       <a-row :gutter="[24, 24]" style="height: 100%">
         <a-col :span="24">
           <BetweenMenus>
-            <template #left>
-              <a-dropdown>
-                <template #overlay>
-                  <a-menu>
-                    <a-menu-item
-                      v-for="item in nodes"
-                      :key="item.uuid"
-                      :disabled="!item.available"
-                      @click="handleChangeNode(item)"
-                    >
-                      <DatabaseOutlined v-if="item.available" />
-                      <FrownOutlined v-else />
-                      {{ computeNodeName(item.ip, item.available, item.remarks) }}
-                    </a-menu-item>
-                    <a-menu-divider />
-                    <a-menu-item @click="toNodesPage">
-                      <FormOutlined />
-                      {{ t("TXT_CODE_28e53fed") }}
-                    </a-menu-item>
-                  </a-menu>
-                </template>
-                <a-button :class="isPhone && 'w-100'">
-                  {{
-                    computeNodeName(
-                      currentRemoteNode?.ip || "",
-                      currentRemoteNode?.available || true,
-                      currentRemoteNode?.remarks
-                    )
-                  }}
-                  <DownOutlined />
-                </a-button>
-              </a-dropdown>
-            </template>
+
             <template #right>
               <div class="search-input w-100">
                 <a-input-group compact style="min-width: 175px">

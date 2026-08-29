@@ -6,6 +6,8 @@ import InstallPage from "@/views/Install.vue";
 import LayoutContainer from "@/views/LayoutContainer.vue";
 import LoginPage from "@/views/Login.vue";
 import SsoBindLogin from "@/views/SsoBindLogin.vue";
+import AgentPage from "@/views/Agent.vue";
+import HostTools from "@/views/HostTools.vue";
 import {
   createRouter,
   createWebHashHistory,
@@ -16,6 +18,10 @@ import {
 export interface RouterMetaInfo {
   icon?: string;
   mainMenu?: boolean;
+  /** Host tools target: terminal / files / image (MCSM-AI local-node redirects). */
+  tool?: string;
+  /** Display label when navTitle differs from the (unique) route name. */
+  navTitle?: string;
   permission?: number;
   redirect?:
     | string
@@ -203,7 +209,11 @@ const originRouterConfig: RouterConfig[] = [
     component: LayoutContainer,
     meta: {
       mainMenu: true,
-      permission: ROLE.ADMIN
+      permission: ROLE.ADMIN,
+      condition: () => {
+        const { state } = useAppStateStore();
+        return state.settings.singleUserMode !== true;
+      }
     },
     children: [
       {
@@ -211,41 +221,56 @@ const originRouterConfig: RouterConfig[] = [
         name: t("TXT_CODE_236f70aa"),
         component: LayoutContainer,
         meta: {
-          permission: ROLE.ADMIN
+          permission: ROLE.ADMIN,
+          condition: () => {
+            const { state } = useAppStateStore();
+            return state.settings.singleUserMode !== true;
+          }
         }
       }
     ]
   },
   {
-    path: "/node",
-    name: t("TXT_CODE_e076d90b"),
+    path: "/node/image",
+    name: t("TXT_CODE_e6c30866"),
     component: LayoutContainer,
     meta: {
       permission: ROLE.ADMIN,
-      mainMenu: true
-    },
-    children: [
-      {
-        path: "/node/image",
-        name: t("TXT_CODE_e6c30866"),
-        component: LayoutContainer,
-        meta: {
-          permission: ROLE.ADMIN,
-          mainMenu: false
-        },
-        children: [
-          {
-            path: "/node/image/new",
-            name: t("TXT_CODE_3d09f0ac"),
-            component: LayoutContainer,
-            meta: {
-              permission: ROLE.ADMIN,
-              mainMenu: false
-            }
-          }
-        ]
-      }
-    ]
+      mainMenu: false
+    }
+  },
+  {
+    path: "/tool/terminal",
+    name: "host-tools-terminal",
+    component: HostTools,
+    meta: {
+      permission: ROLE.ADMIN,
+      mainMenu: true,
+      tool: "terminal",
+      navTitle: t("TXT_CODE_524e3036")
+    }
+  },
+  {
+    path: "/tool/files",
+    name: "host-tools-files",
+    component: HostTools,
+    meta: {
+      permission: ROLE.ADMIN,
+      mainMenu: true,
+      tool: "files",
+      navTitle: t("TXT_CODE_ae533703")
+    }
+  },
+  {
+    path: "/tool/image",
+    name: "host-tools-image",
+    component: HostTools,
+    meta: {
+      permission: ROLE.ADMIN,
+      mainMenu: true,
+      tool: "image",
+      navTitle: t("TXT_CODE_e6c30866")
+    }
   },
 
   {
@@ -258,6 +283,16 @@ const originRouterConfig: RouterConfig[] = [
     }
   },
 
+  {
+    path: "/agent",
+    name: "AI Agent",
+    component: AgentPage,
+    meta: {
+      permission: ROLE.ADMIN,
+      mainMenu: true,
+      customClass: ["nav-button-success"]
+    }
+  },
   {
     path: "/settings",
     name: t("TXT_CODE_b5c7b82d"),

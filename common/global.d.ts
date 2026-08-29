@@ -227,6 +227,8 @@ declare global {
       total: number;
     };
     remote: IPanelOverviewRemoteResponse[];
+    /** UUID of the local (embedded) daemon service in single-process mode. */
+    localDaemonId?: string;
   }
 
   interface IJsonData {

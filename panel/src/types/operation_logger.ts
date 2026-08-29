@@ -202,6 +202,63 @@ export type UserApiKeyChangeOptions = {
   enabled: boolean;
 } & GlobalGeneralOptions;
 
+// Agent audit events
+export type AgentConfigChangeOptions = {
+  type: "agent_config_change";
+  config_before?: any;
+  config_after?: any;
+} & GlobalGeneralOptions;
+
+export type AgentApprovalOptions = {
+  type: "agent_approval_approve" | "agent_approval_reject";
+  approval_id: string;
+  tool: string;
+} & GlobalGeneralOptions;
+
+export type AgentRollbackOptions = {
+  type: "agent_rollback";
+  snapshot_id: string;
+} & GlobalGeneralOptions;
+
+export type AgentWriteFileOptions = {
+  type: "agent_write_file";
+  file: string;
+} & InstanceGeneralOptions;
+
+export type AgentPatchFileOptions = {
+  type: "agent_patch_file";
+  file: string;
+} & InstanceGeneralOptions;
+
+export type AgentDeleteFileOptions = {
+  type: "agent_delete_file";
+  file: string;
+} & InstanceGeneralOptions;
+
+export type AgentMoveFileOptions = {
+  type: "agent_move_file";
+  file_before: string;
+  file_after: string;
+} & InstanceGeneralOptions;
+
+export type AgentInstanceActionOptions = {
+  type: "agent_instance_open" | "agent_instance_stop" | "agent_instance_restart" | "agent_instance_kill" | "agent_instance_command" | "agent_instance_config_set" | "agent_instance_create" | "agent_instance_delete";
+  instance: string;
+  command?: string;
+} & InstanceGeneralOptions;
+
+export type AgentMslActionOptions = {
+  type: "agent_msl_config_set" | "agent_msl_plugin_template" | "agent_msl_regex_ai";
+  plugin?: string;
+  fields?: string;
+} & InstanceGeneralOptions;
+
+export type AgentShellOptions = {
+  type: "agent_shell";
+  command: string;
+  code: number | null;
+} & GlobalGeneralOptions;
+
 export type OperationLoggerItem =
   | InstanceStartOptions
   | InstanceStopOptions
@@ -231,7 +288,17 @@ export type OperationLoggerItem =
   | UserApiKeyChangeOptions
   | UserLoginOptions
   | SsoUnbindOptions
-  | SystemConfigChangeOptions;
+  | SystemConfigChangeOptions
+  | AgentConfigChangeOptions
+  | AgentApprovalOptions
+  | AgentRollbackOptions
+  | AgentWriteFileOptions
+  | AgentPatchFileOptions
+  | AgentDeleteFileOptions
+  | AgentMoveFileOptions
+  | AgentInstanceActionOptions
+  | AgentMslActionOptions
+  | AgentShellOptions;
 
 export type OperationLoggerItemPayload = {
   [T in OperationLoggerItem["type"]]: Omit<Extract<OperationLoggerItem, { type: T }>, "type">;

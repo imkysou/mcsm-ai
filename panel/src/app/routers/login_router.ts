@@ -88,7 +88,8 @@ router.all(
 
     const settings: Partial<SystemConfig> = {
       businessMode: systemConfig?.businessMode || false,
-      businessId: systemConfig?.businessId || ""
+      businessId: systemConfig?.businessId || "",
+      singleUserMode: systemConfig?.singleUserMode !== false
     };
     const user = getUserFromCtx(ctx);
     if (user && user.permission >= ROLE.USER) {

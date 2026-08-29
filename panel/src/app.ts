@@ -10,6 +10,7 @@ import { removeTrail } from "mcsmanager-common";
 import open from "open";
 import os from "os";
 import path from "path";
+import httpProxy from "http-proxy";
 import { v4 } from "uuid";
 import RedisStorage from "./app/common/storage/redis_storage";
 import Storage from "./app/common/storage/sys_storage";
@@ -17,6 +18,15 @@ import { $t } from "./app/i18n";
 import { mountRouters } from "./app/index";
 import { preCheckMiddleware } from "./app/middleware/precheck";
 import { middleware as protocolMiddleware } from "./app/middleware/protocol";
+import {
+  attachEmbeddedDaemon,
+  bootEmbeddedDaemon,
+  embeddedDaemonPrefix,
+  ensureEmbeddedRemoteService,
+  getEmbeddedHttpHandler,
+  isEmbeddedMode,
+  shutdownEmbeddedDaemon
+} from "./app/service/embedded_daemon";
 import { logger } from "./app/service/log";
 import SystemRemoteService from "./app/service/remote_service";
 import SystemUser from "./app/service/user_service";
@@ -36,6 +46,25 @@ function setupHttp(
   port: number,
   host?: string
 ) {
+  const panelPrefix = systemConfig?.prefix || "";
+  const daemonMount = embeddedDaemonPrefix(panelPrefix);
+  const embeddedHandler = isEmbeddedMode() ? getEmbeddedHttpHandler() : null;
+
+  // Compose the request handler: in single-process mode requests under the
+  // daemon mount prefix are served by the embedded daemon Koa app, everything
+  // else by the panel Koa app.
+  const composedHandler: http.RequestListener = embeddedHandler
+    ? (req, res) => {
+        const url = req.url || "/";
+        if (url === daemonMount || url.startsWith(daemonMount + "/")) {
+          req.url = url.slice(daemonMount.length) || "/";
+          embeddedHandler(req, res);
+          return;
+        }
+        koaApp.callback()(req, res);
+      }
+    : koaApp.callback();
+
   let httpServer: http.Server | https.Server;
 
   if (ssl) {
@@ -43,9 +72,9 @@ function setupHttp(
       cert: fs.readFileSync(path.join(sslPemPath)),
       key: fs.readFileSync(path.join(sslKeyPath))
     };
-    httpServer = https.createServer(options, koaApp.callback());
+    httpServer = https.createServer(options, composedHandler);
   } else {
-    httpServer = http.createServer(koaApp.callback());
+    httpServer = http.createServer(composedHandler);
   }
 
   httpServer.on("error", (err) => {
@@ -53,6 +82,34 @@ function setupHttp(
     logger.error(err);
     process.exit(1);
   });
+
+  if (embeddedHandler) {
+    // Single-process mode: daemon Socket.IO is attached directly to this server.
+    attachEmbeddedDaemon(httpServer, panelPrefix);
+  } else {
+    // Optional daemon bridge: forward /daemon to an external daemon without
+    // exposing a second NAT mapping.
+    const daemonTarget = process.env.MCSM_DAEMON_TARGET;
+    const proxy = daemonTarget
+      ? httpProxy.createProxyServer({ target: daemonTarget, ws: true, changeOrigin: true })
+      : null;
+    if (proxy) {
+      proxy.on("error", (error) => logger.warn("Daemon bridge error", error));
+      httpServer.on("upgrade", (req, socket, head) => {
+        if (req.url === daemonMount || req.url?.startsWith(daemonMount + "/")) {
+          req.url = req.url.slice(daemonMount.length) || "/";
+          proxy.ws(req, socket, head);
+        }
+      });
+      httpServer.on("request", (req, res) => {
+        const url = req.url || "/";
+        if (url === daemonMount || url.startsWith(daemonMount + "/")) {
+          req.url = url.slice(daemonMount.length) || "/";
+          proxy.web(req, res);
+        }
+      });
+    }
+  }
 
   httpServer.listen(port, host);
   logger.info("==================================");
@@ -63,6 +120,7 @@ function setupHttp(
   logger.info(appHost);
   logger.info($t("TXT_CODE_app.portTip", { port }));
   logger.info($t("TXT_CODE_app.exitTip", { port }));
+  if (embeddedHandler) logger.info("Single-process mode: daemon attached on the same port under " + daemonMount);
   logger.info("==================================");
 
   if (os.platform() == "win32" && hasParams("--open")) {
@@ -70,9 +128,20 @@ function setupHttp(
   }
 }
 
-async function processExit() {
+let exitSignalCount = 0;
+async function processExit(signal = "exit") {
+  exitSignalCount++;
   try {
     logger.warn($t("TXT_CODE_cea5dba1"));
+    // In single-process mode the daemon lives in this process and must shut
+    // its instances down gracefully before the process exits.
+    if (isEmbeddedMode()) {
+      try {
+        await shutdownEmbeddedDaemon(exitSignalCount > 1);
+      } catch (err) {
+        logger.error("Embedded daemon shutdown error:", err);
+      }
+    }
     logger.warn($t("TXT_CODE_b0aa2db9"));
   } catch (err) {
     logger.error(err);
@@ -84,7 +153,7 @@ async function processExit() {
 ["SIGTERM", "SIGINT", "SIGQUIT"].forEach(function (sig) {
   process.on(sig, () => {
     logger.warn(`${sig} close process signal detected.`);
-    processExit();
+    processExit(sig);
   });
 });
 
@@ -120,6 +189,13 @@ _  /  / / / /___  ____/ /_  /  / / / /_/ /_  / / / /_/ /_  /_/ //  __/  /
   versionAdapter.detectConfig();
 
   checkBusinessMode();
+
+  // Single-process mode: boot the daemon inside this process before the panel
+  // subsystems, so the local daemon service can be registered automatically.
+  bootEmbeddedDaemon(systemConfig?.prefix || "");
+  if (isEmbeddedMode() && systemConfig) {
+    await ensureEmbeddedRemoteService(systemConfig.httpPort, systemConfig.prefix || "");
+  }
 
   // Initialize services
   await SystemUser.initialize();
