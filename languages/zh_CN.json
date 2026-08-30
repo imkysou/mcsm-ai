@@ -2363,6 +2363,7 @@
   "TXT_CODE_agent_welcome_2": "@msl 写一个清理掉落物的插件",
   "TXT_CODE_agent_welcome_3": "查看服务器实例状态",
   "TXT_CODE_agent_welcome_sub": "智能服务器管理助手。读取日志、修复崩溃、编写 MSL 插件、管理实例。",
+  "TXT_CODE_agent_sse_timeout": "AI Agent 长时间未响应（90 秒内未收到任何数据），已自动中止本次运行，请重试。",
   "TXT_CODE_agent_workspace": "工作区",
   "TXT_CODE_agent_workspace_folder": "系统文件夹",
   "TXT_CODE_agent_workspace_instance": "实例",

@@ -2363,6 +2363,7 @@
   "TXT_CODE_agent_welcome_2": "@msl write a plugin to clear dropped items",
   "TXT_CODE_agent_welcome_3": "Show server instance status",
   "TXT_CODE_agent_welcome_sub": "Intelligent server management assistant. Read logs, fix crashes, write MSL plugins, control instances.",
+  "TXT_CODE_agent_sse_timeout": "The Agent stopped responding (no data received for 90s). The run was aborted - please retry.",
   "TXT_CODE_agent_workspace": "Workspace",
   "TXT_CODE_agent_workspace_folder": "System folder",
   "TXT_CODE_agent_workspace_instance": "Instance",

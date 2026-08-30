@@ -254,6 +254,10 @@ router.post("/run", permission({ level: ROLE.ADMIN }), async (ctx) => {
   const sessionId = String(body.sessionId || "");
   const mode = body.mode || detectMode(prompt);
   const approved = body.approved === true;
+  // Optional referenced file (path only): the engine only attaches it as a
+  // hint to the model, never reads/injects the content. Length-capped only;
+  // path validation against the workspace happens in buildFileReference.
+  const file = String(body.file || "").trim().slice(0, 2048);
 
   const wantsStream = ctx.accepts("text/event-stream") || body.stream === true;
   if (wantsStream) {
@@ -264,18 +268,29 @@ router.post("/run", permission({ level: ROLE.ADMIN }), async (ctx) => {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no"
     });
-    ctx.req.on("close", () => {
-      // client disconnected -> abort the run
-      if (sessionId) abortSession(sessionId);
-    });
-    const send = (event: string, data: unknown) => {
-      ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    };
     const signal = new AbortController();
     if (sessionId) abortControllers.set(sessionId, signal);
+    // Client disconnect detection. `req` close fires as soon as the request
+    // body is consumed, which would abort a healthy run - listen on the
+    // *response* instead and only abort when the socket died before finish.
+    const onResClose = () => {
+      if (ctx.res.writableFinished) return;
+      // Page left / refresh / browser closed - abort THIS run regardless of
+      // whether a session id was known when the request started. New sessions
+      // only get their id after the run begins, so abortSession alone would
+      // leak the whole engine loop in the background.
+      signal.abort();
+      if (sessionId) abortSession(sessionId);
+    };
+    ctx.res.on("close", onResClose);
+    const send = (event: string, data: unknown) => {
+if (!ctx.res.destroyed && !ctx.res.writableEnded) {
+        ctx.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      }
+    };
     try {
       const result = await engine.run(
-        { workspace, prompt, providerId, sessionId: sessionId || undefined, approved, mode, daemonId: body.daemonId, instanceUuid: body.instanceUuid, model: body.model },
+        { workspace, prompt, providerId, sessionId: sessionId || undefined, approved, mode, daemonId: body.daemonId, instanceUuid: body.instanceUuid, model: body.model, file: file || undefined },
         send,
         signal.signal
       );
@@ -295,9 +310,17 @@ router.post("/run", permission({ level: ROLE.ADMIN }), async (ctx) => {
 
   const signal = new AbortController();
   if (sessionId) abortControllers.set(sessionId, signal);
+  // Non-streaming requests: abort the engine run if the client disconnects
+  // (response close before finish - `req` close fires on body consumption).
+  const onResClose = () => {
+    if (ctx.res.writableFinished) return;
+    signal.abort();
+    if (sessionId) abortSession(sessionId);
+  };
+  ctx.res.on("close", onResClose);
   try {
     const result = await engine.run(
-      { workspace, prompt, providerId, sessionId: sessionId || undefined, approved, mode, daemonId: body.daemonId, instanceUuid: body.instanceUuid, model: body.model },
+      { workspace, prompt, providerId, sessionId: sessionId || undefined, approved, mode, daemonId: body.daemonId, instanceUuid: body.instanceUuid, model: body.model, file: file || undefined },
       () => {},
       signal.signal
     );

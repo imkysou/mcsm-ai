@@ -127,6 +127,8 @@ export interface AgentRunConfig {
   sessionId?: string;
   approved: boolean;
   mode: "normal" | "fix" | "msl";
+  /** Optional file the user referenced via "Ask Agent" (path only, never content). */
+  file?: string;
 }
 
 export interface AgentEvent {

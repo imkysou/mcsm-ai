@@ -33,6 +33,8 @@ export interface ToolContext {
   /** Provider-configured web search endpoint + key (can be undefined). */
   search?: { endpoint?: string; apiKey?: string };
   emit: (event: string, data: unknown) => void;
+  /** Abort signal of the current run - long-running tools should stop when it fires. */
+  signal?: AbortSignal;
 }
 
 export interface ToolDef {
@@ -141,6 +143,27 @@ async function daemonRequest(daemonId: string, event: string, data: any, timeout
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
+
+/** MCSM instance status codes (mirrors daemon Instance class). */
+const InstanceStatus = {
+  BUSY: -1,
+  STOPPED: 0,
+  STOPPING: 1,
+  STARTING: 2,
+  RUNNING: 3
+} as const;
+
+/** Human-readable MCSM instance state name (status codes are daemon-side). */
+function instanceStatusLabel(status: number): string {
+  switch (status) {
+    case InstanceStatus.BUSY: return "busy";
+    case InstanceStatus.STOPPED: return "stopped";
+    case InstanceStatus.STOPPING: return "stopping";
+    case InstanceStatus.STARTING: return "starting";
+    case InstanceStatus.RUNNING: return "running";
+    default: return "state:" + status;
+  }
+}
 
 function p(properties: Record<string, any>, required: string[] = []) {
   return { type: "object", properties, required };
@@ -467,28 +490,31 @@ export function buildTools(): ToolDef[] {
     // ---------- instance control ----------
     {
       name: "instance_list",
-      description: "List all instances on the bound daemon.",
+      description:
+        "List all instances on the bound daemon. Use this BEFORE instance_open / instance_stop / instance_restart to learn the current state of an instance - most control failures happen because the Agent assumed a state without checking.",
       parameters: p({}),
       impl: async (_a, ctx) => {
         const res = await daemonRequest(ctx.session.daemonId!, "instance/select", { page: 1, pageSize: 100, condition: {} });
+        const label = instanceStatusLabel;
         const rows = (res?.data || []).map((i: any) => {
-          const st = i.status === 3 ? "running" : i.status === 0 ? "stopped" : `state:${i.status}`;
-          return `${i.instanceUuid}  ${i.config?.nickname}  [${st}]  type=${i.config?.type}`;
+          const st = label(Number(i.status));
+          return `${i.instanceUuid}  ${i.config?.nickname}  [${st}]  type=${i.config?.type}  cwd=${i.config?.cwd || "-"}`;
         });
         return rows.join("\n") || "No instances";
       }
     },
     {
       name: "instance_detail",
-      description: "Get detailed info + recent output log of an instance.",
+      description:
+        "Get detailed info + recent output log of an instance: uuid, nickname, live status (stopped/starting/running/...), type, cwd, startCommand and the last console output. Always call this after creating/configuring an instance and before start/stop/restart to verify the real state - do not assume state from memory.",
       parameters: p({ instance_uuid: s("Instance UUID") }, ["instance_uuid"]),
       impl: async (a, ctx) => {
         const res = await daemonRequest(ctx.session.daemonId!, "instance/detail", { instanceUuid: a.instance_uuid });
         const cfg = res?.config || {};
         const info = res?.info || {};
         let out = `Instance ${res?.instanceUuid} "${cfg.nickname}"\n`;
-        out += `status: ${res?.status} type: ${cfg.type} cwd: ${cfg.cwd}\n`;
-        out += `startCommand: ${cfg.startCommand}\n`;
+        out += `status: ${instanceStatusLabel(Number(res?.status))} (${res?.status}) type: ${cfg.type} cwd: ${cfg.cwd}\n`;
+        out += `startCommand: ${cfg.startCommand || "(empty - instance cannot start)"}\n`;
         out += `players: ${info.currentPlayers}/${info.maxPlayers} version: ${info.version} ping: ${info.latency}\n`;
         try {
           const log = await daemonRequest(ctx.session.daemonId!, "instance/outputlog", { instanceUuid: a.instance_uuid, size: 300 });
@@ -499,54 +525,88 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "instance_open",
-      description: "Start an instance. Requires approval.",
+      description:
+        "Start a STOPPED instance. ALWAYS call instance_list or instance_detail first to confirm the instance exists and its status is 'stopped'; if it is already starting/running do NOT call this again (the daemon rejects it) - instead read logs or use instance_command. After calling, use timewait (8000-15000ms) and then instance_detail to verify it reached 'running'. Requires approval.",
       parameters: p({ instance_uuid: s("Instance UUID") }, ["instance_uuid"]),
       permission: "instance",
       patternFor: (a) => "instance:" + String(a.instance_uuid || "") + ":open",
       impl: async (a, ctx) => {
         requireApproval(ctx, "instance_open", a);
-        const res = await daemonRequest(ctx.session.daemonId!, "instance/open", { instanceUuids: [a.instance_uuid] });
-        logAudit(ctx, "agent_instance_open", { instance: a.instance_uuid });
-        return clip(res);
+        const uuid = String(a.instance_uuid || "");
+        // Pre-check: the daemon rejects start unless status == stopped, and the
+        // raw i18n error is useless for the model. Report the real state.
+        const detail = await daemonRequest(ctx.session.daemonId!, "instance/detail", { instanceUuid: uuid });
+        const status = Number(detail?.status);
+        const label = instanceStatusLabel(status);
+        if (status === InstanceStatus.RUNNING || status === InstanceStatus.STARTING) {
+          throw new Error(
+            `Instance ${uuid} is already ${label} (status ${status}); instance_open would be rejected. Stop it first with instance_stop / instance_kill, or interact via instance_command.`
+          );
+        }
+        if (status !== InstanceStatus.STOPPED) {
+          throw new Error(`Instance ${uuid} is ${label} (status ${status}); wait for it to return to 'stopped' before starting.`);
+        }
+        if (!String(detail?.config?.startCommand || "").trim()) {
+          throw new Error(`Instance ${uuid} has no startCommand configured; set it first with instance_config_set, then start.`);
+        }
+        const res = await daemonRequest(ctx.session.daemonId!, "instance/open", { instanceUuids: [uuid] });
+        logAudit(ctx, "agent_instance_open", { instance: uuid });
+        return `Start signal sent for ${uuid}. Use timewait then instance_detail to confirm it reaches 'running'.`;
       }
     },
     {
       name: "instance_stop",
-      description: "Gracefully stop an instance. Requires approval.",
+      description: "Gracefully stop a RUNNING instance (sends its stopCommand, then waits). ALWAYS check instance_detail first; if it is already stopped, do not call this. After calling, use timewait then instance_detail to confirm it reached \"stopped\". Requires approval.",
       parameters: p({ instance_uuid: s("Instance UUID") }, ["instance_uuid"]),
       permission: "instance",
       patternFor: (a) => "instance:" + String(a.instance_uuid || "") + ":stop",
       impl: async (a, ctx) => {
         requireApproval(ctx, "instance_stop", a);
-        const res = await daemonRequest(ctx.session.daemonId!, "instance/stop", { instanceUuids: [a.instance_uuid] });
-        logAudit(ctx, "agent_instance_stop", { instance: a.instance_uuid });
-        return clip(res);
+        const uuid = String(a.instance_uuid || "");
+        const detail = await daemonRequest(ctx.session.daemonId!, "instance/detail", { instanceUuid: uuid });
+        const status = Number(detail?.status);
+        if (status !== InstanceStatus.RUNNING && status !== InstanceStatus.STARTING && status !== InstanceStatus.STOPPING) {
+          throw new Error(`Instance ${uuid} is ${instanceStatusLabel(status)}; already stopped - instance_stop is a no-op.`);
+        }
+        const res = await daemonRequest(ctx.session.daemonId!, "instance/stop", { instanceUuids: [uuid] });
+        logAudit(ctx, "agent_instance_stop", { instance: uuid });
+        return `Stop signal sent for ${uuid}. Use timewait then instance_detail to confirm it reaches \"stopped\".`;
       }
     },
     {
       name: "instance_restart",
-      description: "Restart an instance. Requires approval.",
+      description: "Restart a RUNNING instance (stop then start). After calling, use timewait (8000-15000ms) then instance_detail to verify it reached \"running\" again; if it was already stopped, use instance_open instead. Requires approval.",
       parameters: p({ instance_uuid: s("Instance UUID") }, ["instance_uuid"]),
       permission: "instance",
       patternFor: (a) => "instance:" + String(a.instance_uuid || "") + ":restart",
       impl: async (a, ctx) => {
         requireApproval(ctx, "instance_restart", a);
-        const res = await daemonRequest(ctx.session.daemonId!, "instance/restart", { instanceUuids: [a.instance_uuid] });
-        logAudit(ctx, "agent_instance_restart", { instance: a.instance_uuid });
-        return clip(res);
+        const uuid = String(a.instance_uuid || "");
+        const detail = await daemonRequest(ctx.session.daemonId!, "instance/detail", { instanceUuid: uuid });
+        if (Number(detail?.status) === InstanceStatus.STOPPED) {
+          throw new Error(`Instance ${uuid} is already stopped; use instance_open instead of instance_restart.`);
+        }
+        const res = await daemonRequest(ctx.session.daemonId!, "instance/restart", { instanceUuids: [uuid] });
+        logAudit(ctx, "agent_instance_restart", { instance: uuid });
+        return `Restart signal sent for ${uuid}. Use timewait then instance_detail to confirm it reaches \"running\".`;
       }
     },
     {
       name: "instance_kill",
-      description: "Force kill an instance. Requires approval.",
+      description: "Force kill an instance (SIGKILL, no graceful stop). Use it when instance_stop hangs or the process is stuck, NOT as a normal stop. Interleave with timewait then instance_detail to verify it reached \"stopped\". Requires approval.",
       parameters: p({ instance_uuid: s("Instance UUID") }, ["instance_uuid"]),
       permission: "instance",
       patternFor: (a) => "instance:" + String(a.instance_uuid || "") + ":kill",
       impl: async (a, ctx) => {
         requireApproval(ctx, "instance_kill", a);
-        const res = await daemonRequest(ctx.session.daemonId!, "instance/kill", { instanceUuids: [a.instance_uuid] });
-        logAudit(ctx, "agent_instance_kill", { instance: a.instance_uuid });
-        return clip(res);
+        const uuid = String(a.instance_uuid || "");
+        const detail = await daemonRequest(ctx.session.daemonId!, "instance/detail", { instanceUuid: uuid });
+        if (Number(detail?.status) === InstanceStatus.STOPPED) {
+          throw new Error(`Instance ${uuid} is already stopped; instance_kill is a no-op.`);
+        }
+        const res = await daemonRequest(ctx.session.daemonId!, "instance/kill", { instanceUuids: [uuid] });
+        logAudit(ctx, "agent_instance_kill", { instance: uuid });
+        return `Kill signal sent for ${uuid}. Use timewait then instance_detail to confirm it reaches \"stopped\".`;
       }
     },
     {
@@ -575,8 +635,9 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "instance_config_set",
-      description: "Update instance configuration fields (nickname, startCommand, stopCommand, type, tag, etc.). Requires approval.",
-      parameters: p({ instance_uuid: s("Instance UUID"), config: s("JSON object with fields to update") }, ["instance_uuid", "config"]),
+      description:
+        "Update instance configuration fields. Pass config as a JSON OBJECT (e.g. {\"cwd\":\"C:\\svr\", \"startCommand\":\"node server.js\"}) - key/value fields, NOT a JSON string of the whole object. Only include fields you want to change. cwd accepts an absolute path on the daemon host or a relative folder name. After updating, call instance_detail to verify. Requires approval.",
+      parameters: p({ instance_uuid: s("Instance UUID"), config: s("JSON object with fields to update, e.g. {\"startCommand\":\"node server.js\",\"cwd\":\"D:\\svr\"}") }, ["instance_uuid", "config"]),
       permission: "instance",
       patternFor: (a) => "instance:" + String(a.instance_uuid || "") + ":config",
       impl: async (a, ctx) => {
@@ -588,37 +649,66 @@ export function buildTools(): ToolDef[] {
           throw new Error("config must be valid JSON");
         }
         if (!cfg || typeof cfg !== "object") throw new Error("config must be an object");
+        if (cfg.startCommand != null && !String(cfg.startCommand).trim()) {
+          throw new Error("startCommand cannot be empty - the instance would never start");
+        }
         const res = await daemonRequest(ctx.session.daemonId!, "instance/update", { instanceUuid: a.instance_uuid, config: cfg });
         logAudit(ctx, "agent_instance_config_set", { instance: a.instance_uuid, fields: Object.keys(cfg).join(",") });
-        return clip(res);
+        return clip(res) + "\nFields changed. Call instance_detail to verify the new config.";
       }
     },
     {
       name: "instance_create",
-      description: "Create a new instance on the bound daemon. Requires approval.",
+      description:
+        "Create a new instance on the bound daemon. Pass the fields as TOP-LEVEL parameters - do NOT wrap them in a config object. nickname, type, cwd and startCommand are required. cwd may be an ABSOLUTE path on the daemon host (use it when the workspace of the current session is on this daemon) or a RELATIVE folder name (created under the daemon instances dir). After creating, ALWAYS call instance_detail to read the real config back and confirm it, then instance_open to start. Requires approval.",
       parameters: p(
         {
-          nickname: s("Instance name"),
-          type: s("Instance type, e.g. minecraft/java"),
-          cwd: s("Working directory relative to daemon instances dir"),
-          startCommand: s("Start command"),
-          tag: s("Comma-separated tags")
+          nickname: s("Instance name (required, max 60 chars)"),
+          type: s("Instance type (required). e.g. minecraft/java, minecraft/bedrock, universal. For a plain node script use \"universal\" and set processType to \"general\" via instance_config_set"),
+          cwd: s("Working directory (required): absolute path on the daemon host, or a relative folder name under the daemon instances dir. \".\" creates a folder under the daemon data dir"),
+          startCommand: s("Start command (required), e.g. \"node server.js\" or \"java -Xms1G -jar paper.jar nogui\""),
+          tag: s("Comma-separated tags (optional)")
         },
-        ["nickname", "type"]
+        ["nickname", "type", "cwd", "startCommand"]
       ),
       permission: "instance",
       patternFor: () => "instance:*:create",
       impl: async (a, ctx) => {
         requireApproval(ctx, "instance_create", a);
+        // Defensive input handling: some models wrap params in a config JSON
+        // string (or object). Merge it so create never silently yields
+        // nickname="undefined" / empty startCommand - the old behaviour
+        // produced a zombie instance that could not start.
+        let params: Record<string, any> = { ...a };
+        if (params.config) {
+          let extra: any = params.config;
+          if (typeof extra === "string") {
+            try { extra = JSON.parse(extra); } catch {
+              throw new Error("config must be valid JSON (or pass nickname/type/cwd/startCommand as top-level fields)");
+            }
+          }
+          if (extra && typeof extra === "object") params = { ...extra, ...params };
+        }
+        const nickname = String(params.nickname || "").trim().slice(0, 60);
+        const type = String(params.type || "").trim();
+        const cwd = String(params.cwd || "").trim();
+        const startCommand = String(params.startCommand || "").trim().slice(0, 2000);
+        const tag = String(params.tag || "").split(",").map((t) => t.trim()).filter(Boolean);
+        // Required-field validation: fail loudly instead of creating garbage.
+        if (!nickname) throw new Error("instance_create failed: nickname is required");
+        if (!type) throw new Error("instance_create failed: type is required (e.g. \"universal\", \"minecraft/java\")");
+        if (!cwd) throw new Error("instance_create failed: cwd is required - pass an absolute daemon path or a relative folder name");
+        if (!startCommand) throw new Error("instance_create failed: startCommand is required (e.g. \"node server.js\")");
         const res = await daemonRequest(ctx.session.daemonId!, "instance/new", {
-          nickname: String(a.nickname).slice(0, 60),
-          type: String(a.type),
-          cwd: String(a.cwd || ""),
-          startCommand: String(a.startCommand || "").slice(0, 2000),
-          tag: String(a.tag || "").split(",").map((t) => t.trim()).filter(Boolean)
+          nickname,
+          type,
+          cwd,
+          startCommand,
+          tag
         });
-        logAudit(ctx, "agent_instance_create", { nickname: a.nickname });
-        return clip(res);
+        logAudit(ctx, "agent_instance_create", { nickname, cwd, type });
+        const uuid = String((res as any)?.instanceUuid || "");
+        return clip(res) + (uuid ? `\nInstance created: ${uuid}. Call instance_detail to confirm, then instance_open to start it.` : "");
       }
     },
     {
@@ -810,7 +900,7 @@ plugin_registerCommand("!${name.toLowerCase()} <text>", (player, text) => {
         requireApproval(ctx, "shell_command", a);
         const raw = String(a.command || "").slice(0, 4096);
         const { argv } = validateShellCommand(raw, ctx.session.workspace);
-        const result = await runShellCommand(argv, { cwd: ctx.session.workspace, timeoutMs: 60000 });
+        const result = await runShellCommand(argv, { cwd: ctx.session.workspace, timeoutMs: 60000, signal: ctx.signal });
         logAudit(ctx, "agent_shell", { command: raw.slice(0, 200), code: result.code });
         const out = `[exit ${result.code ?? "timeout"}] ${result.durationMs}ms\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}`;
         return clip(out);

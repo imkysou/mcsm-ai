@@ -144,7 +144,11 @@ function computeRate(current: number, previous: number, elapsedSec: number): num
  * - Skips sampling while no interface data is available (avoids a fake baseline).
  * - The first sample with data only establishes the byte baseline (no zero point
  *   pushed to the chart, so the line does not start with an artificial 0).
+ * - Gas-throttled to ~10s to match the low-frequency backend refresh (the
+ *   backend reads interface counters every 10s to keep CPU usage low); sampling
+ *   faster than that would only add 0-value points and extra chart renders.
  */
+let lastNetSampleTime = 0;
 function pushNetSample() {
   if (netInterfaces.value.length === 0) return;
 
@@ -153,14 +157,19 @@ function pushNetSample() {
 
   if (!lastNetSample) {
     lastNetSample = { time: now, inBytes: bytes.inBytes, outBytes: bytes.outBytes };
+    lastNetSampleTime = now;
     lastNetRate.value = { in: 0, out: 0 };
     return;
   }
+
+  // Only push a new point (and re-render) every ~8s.
+  if (now - lastNetSampleTime < 8000) return;
 
   const elapsedSec = (now - lastNetSample.time) / 1000;
   const inRate = computeRate(bytes.inBytes, lastNetSample.inBytes, elapsedSec);
   const outRate = computeRate(bytes.outBytes, lastNetSample.outBytes, elapsedSec);
   lastNetSample = { time: now, inBytes: bytes.inBytes, outBytes: bytes.outBytes };
+  lastNetSampleTime = now;
   lastNetRate.value = { in: inRate, out: outRate };
 
   const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
@@ -174,6 +183,7 @@ function onInterfaceChange(value: unknown) {
   selectedInterface.value = name;
   storeInterface(name);
   lastNetSample = null; // restart the byte baseline for the new selection
+  lastNetSampleTime = 0;
   lastNetRate.value = { in: 0, out: 0 };
   pushNetSample();
   renderNetChart();
@@ -304,6 +314,7 @@ watch(
     if (sel !== "auto" && !list.some((v) => v.name === sel)) {
       selectedInterface.value = "auto";
       lastNetSample = null;
+      lastNetSampleTime = 0;
     }
   },
   { immediate: true }
@@ -325,8 +336,12 @@ watch([cpuPercent, memPercent], () => {
 
 watch(state, () => {
   pushNetSample();
-  renderNetChart();
 });
+
+// Re-render the net chart only when a new sample is actually pushed (throttled).
+watch(netSamples, () => {
+  renderNetChart();
+}, { deep: true });
 </script>
 
 <template>

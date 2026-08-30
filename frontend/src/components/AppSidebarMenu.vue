@@ -6,7 +6,6 @@ import {
 } from "@/hooks/useHeaderMenus";
 import { useAppConfigStore } from "@/stores/useAppConfigStore";
 import {
-  ApartmentOutlined,
   AppstoreOutlined,
   AreaChartOutlined,
   LinkOutlined,
@@ -21,6 +20,7 @@ import {
 import type { Key } from "ant-design-vue/es/table/interface";
 import type { Component } from "vue";
 import { useRoute } from "vue-router";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 
 const route = useRoute();
 const { sidebarItems, handleToPage } = useHeaderMenus();
@@ -40,7 +40,7 @@ const routePathIcons: Record<string, Component> = {
   "/overview": AreaChartOutlined,
   "/users": TeamOutlined,
   "/settings": SettingOutlined,
-  "/agent": AppstoreOutlined,
+  "/agent": AgentStarIcon,
   "/customer": UserOutlined,
   "/login": LoginOutlined,
   "/shop": ShoppingOutlined,

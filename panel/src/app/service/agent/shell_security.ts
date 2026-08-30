@@ -205,6 +205,8 @@ export interface SpawnShellOptions {
   env?: Record<string, string>;
   /** Called for every output chunk (streaming). */
   onData?: (chunk: string) => void;
+  /** Abort signal: kills the process tree immediately when fired. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -273,6 +275,12 @@ export function runShellCommand(
         }
       }
     };
+
+    // External abort (Agent run cancelled): kill the whole tree right away.
+    if (opts.signal) {
+      if (opts.signal.aborted) killTree(child);
+      else opts.signal.addEventListener("abort", () => killTree(child), { once: true });
+    }
 
     const timer = setTimeout(() => {
       killTree(child);

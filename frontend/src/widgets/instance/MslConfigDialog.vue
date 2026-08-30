@@ -16,10 +16,10 @@ import {
   PauseCircleOutlined,
   ReloadOutlined,
   CheckCircleOutlined,
-  RobotOutlined,
   ThunderboltOutlined,
   CodeOutlined
 } from "@ant-design/icons-vue";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 import { onMounted, ref, watch } from "vue";
 
 const props = defineProps<{
@@ -378,7 +378,7 @@ const runTermCommand = async () => {
                     :loading="generatingKey === key"
                     @click="askAiGenerate(key as any)"
                   >
-                    <template #icon><RobotOutlined /></template>
+                    <template #icon><AgentStarIcon :size="14" /></template>
                     {{ t("TXT_CODE_msl_regex_generate") }}
                   </a-button>
                 </a-tooltip>

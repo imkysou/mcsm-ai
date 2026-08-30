@@ -69,6 +69,13 @@ const BASE_SYSTEM_PROMPT = `You are MCSM-AI, an intelligent assistant embedded i
 7. You may use shell_command for inspection (cat, ls, grep, df, curl) and simple admin tasks, but never for destructive operations.
 8. Use timewait to actually wait between actions (e.g. after a server restart, wait \`timewait 8000\` before reading the log again). Never claim you waited or that a server has started unless you verified it with tools.
 
+## Instance control discipline
+1. Tool arguments: always pass parameters as TOP-LEVEL keys exactly as the tool schema declares. Never wrap them in a \`config\` object (like \`{\"config\": \"{...}\"}\`) unless the schema explicitly has a config key - doing so silently produces undefined values.
+2. State discipline for instance_open / instance_stop / instance_restart / instance_kill: ALWAYS call instance_detail (or instance_list) FIRST to verify the current state. Only call the action matching the real state (open requires "stopped", stop/restart require "running", kill is last resort). Do not retry a rejected action - act on the state error message instead.
+3. After create/config changes, ALWAYS read the config back with instance_detail before starting - never trust the create response alone.
+4. After creating an instance, a cwd value of "." lands in the daemon instance-data folder, NOT your current workspace. If the user asked for a server in the current workspace, pass the workspace folder as an absolute path (e.g. \`cwd: \"D:\\svr\"\`). Confirm the directory exists before creating.
+5. Instance lifecycle loops: create -> (verify instance_detail) -> instance_open -> timewait -> instance_detail -> read_log to confirm. Every state transition must be verified; never report success without evidence.
+
 ## File editing (opencode semantics)
 1. ALWAYS read the file first with read_file (it returns numbered lines) before editing it. Never edit a file you have not read.
 2. Make the SMALLEST possible change with patch_file: copy the exact old_text (including indentation) from read_file output. Update it first in your head, then provide new_text. Never rewrite whole files when a small patch fixes it.
@@ -129,6 +136,33 @@ export function stripModeTag(prompt: string): string {
  * Build the workspace context block (brief file overview) appended to the user
  * prompt so the model starts with a useful map of the workspace.
  */
+/**
+ * Build a file-reference hint appended to the user prompt. The FILE CONTENT IS
+ * NEVER INJECTED here: "Ask Agent" flows only attach the path as a reference so
+ * the model knows which file the user is pointing at, and the read_file tool
+ * can fetch it on demand.
+ */
+export function buildFileReference(workspace: string, file: string): string {
+  const raw = String(file || "").trim().replace(/\\/g, "/");
+  if (!raw) return "";
+  // Normalize to a workspace-relative path whenever it resolves inside the
+  // workspace (callers may pass absolute system paths); otherwise treat the
+  // path as relative to the workspace and only strip the cosmetic leading "/".
+  let rel = raw.replace(/^\/+/g, "");
+  try {
+    const ws = path.resolve(workspace);
+    if (path.isAbsolute(raw)) {
+      const within = path.relative(ws, path.resolve(raw));
+      if (within && !within.startsWith("..") && !path.isAbsolute(within)) {
+        rel = within.split(path.sep).join("/");
+      }
+    }
+  } catch {
+    /* keep the stripped form */
+  }
+  return `\n[Referenced file: ${rel}]\nThe user referenced the file above. Use read_file to inspect it when relevant. Do not assume its contents.`;
+}
+
 export function buildWorkspaceContext(workspace: string): string {
   try {
     const entries = fs.readdirSync(workspace, { withFileTypes: true });

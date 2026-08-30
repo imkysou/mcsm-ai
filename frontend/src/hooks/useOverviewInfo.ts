@@ -1,5 +1,6 @@
 import { overviewInfo } from "@/services/apis";
-import { onMounted, onUnmounted, ref, type Ref } from "vue";
+import { createGlobalState } from "@vueuse/core";
+import { ref, type Ref } from "vue";
 
 export interface ComputedOverviewResponse extends IPanelOverviewResponse {
   totalInstance: number;
@@ -58,9 +59,15 @@ function computeResponseData(v: Ref<IPanelOverviewResponse | undefined>) {
   return currentState;
 }
 
-export function useOverviewInfo() {
+/**
+ * Global single-instance overview poller.
+ * Multiple cards (SystemResource, PanelOverview, ...) share ONE 3s poll loop
+ * instead of each component spawning its own interval + backend request.
+ * Lifetime is page-level: polling starts once and keeps running while the
+ * app is open, which is cheaper than per-card intervals.
+ */
+export const useOverviewInfo = createGlobalState(() => {
   const result = overviewInfo();
-  let task: NodeJS.Timer | undefined;
 
   const newState = ref<ComputedOverviewResponse>();
 
@@ -73,19 +80,10 @@ export function useOverviewInfo() {
     return newState.value;
   };
 
-  onMounted(async () => {
-    refresh();
-    task = setInterval(async () => {
-      await refresh();
-    }, 3000);
-  });
-
-  onUnmounted(() => {
-    if (task) {
-      clearInterval(task);
-      task = undefined;
-    }
-  });
+  refresh();
+  setInterval(async () => {
+    await refresh();
+  }, 3000);
 
   return {
     ...result,
@@ -93,4 +91,4 @@ export function useOverviewInfo() {
     refresh,
     execute: null
   };
-}
+});

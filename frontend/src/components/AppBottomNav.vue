@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useHeaderMenus } from "@/hooks/useHeaderMenus";
 import {
-  ApartmentOutlined,
   AppstoreOutlined,
   AreaChartOutlined,
   CloseOutlined,
@@ -17,6 +16,7 @@ import {
 import type { Component } from "vue";
 import { ref } from "vue";
 import { useRoute } from "vue-router";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 
 const route = useRoute();
 const { menus, handleToPage } = useHeaderMenus();
@@ -28,6 +28,7 @@ const routePathIcons: Record<string, Component> = {
   "/overview": AreaChartOutlined,
   "/users": TeamOutlined,
   "/settings": SettingOutlined,
+  "/agent": AgentStarIcon,
   "/customer": UserOutlined,
   "/login": LoginOutlined,
   "/shop": ShoppingOutlined,

@@ -3,10 +3,12 @@ import Editor from "@/components/Editor.vue";
 import { useKeyboardEvents } from "@/hooks/useKeyboardEvents";
 import { useAppRouters } from "@/hooks/useAppRouters";
 import { useScreen } from "@/hooks/useScreen";
+import { GLOBAL_INSTANCE_UUID } from "@/config/const";
 import { t } from "@/lang/i18n";
 import { fileContent } from "@/services/apis/fileManager";
 import { reportErrorMsg } from "@/tools/validator";
-import { FullscreenExitOutlined, FullscreenOutlined, RobotOutlined } from "@ant-design/icons-vue";
+import { FullscreenExitOutlined, FullscreenOutlined } from "@ant-design/icons-vue";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 import { message } from "ant-design-vue";
 import { computed, ref } from "vue";
 
@@ -14,15 +16,30 @@ const emit = defineEmits(["save"]);
 
 const { toPage } = useAppRouters();
 
-/** Ask the Agent to review / modify this exact file. */
+/**
+ * Ask the Agent about this exact file. The file path is passed as a reference
+ * tag (no canned prompt, no file content); the user writes their own question.
+ * For non-instance system files (global0001) the Agent switches to system
+ * folder mode with the file's parent directory as the workspace.
+ */
 const askAgent = () => {
+  if (!props.instanceId || props.instanceId === GLOBAL_INSTANCE_UUID) {
+    const parent = path.value.split("/").slice(0, -1).join("/") || "/";
+    toPage({
+      path: "/agent",
+      query: {
+        workspace: parent,
+        file: path.value
+      }
+    });
+    return;
+  }
   toPage({
     path: "/agent",
     query: {
       daemonId: props.daemonId,
       instanceUuid: props.instanceId,
-      file: path.value,
-      prompt: `Review the file ${path.value} in this workspace. Point out issues and suggest fixes.`
+      file: path.value
     }
   });
 };
@@ -166,7 +183,7 @@ defineExpose({
         @click="askAgent"
       >
         <template #icon>
-          <RobotOutlined />
+          <AgentStarIcon :size="14" />
         </template>
         {{ t("TXT_CODE_ask_agent") }}
       </a-button>

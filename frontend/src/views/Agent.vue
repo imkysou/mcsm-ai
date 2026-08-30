@@ -49,7 +49,6 @@ import {
   StopOutlined,
   NodeIndexOutlined,
   MenuOutlined,
-  RobotOutlined,
   BulbOutlined,
   ToolOutlined,
   ThunderboltOutlined,
@@ -66,6 +65,8 @@ import {
   ClockCircleOutlined,
   ArrowUpOutlined
 } from "@ant-design/icons-vue";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
+import { GLOBAL_INSTANCE_UUID } from "@/config/const";
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 import { useScreen } from "@/hooks/useScreen";
@@ -261,7 +262,17 @@ function hydrateMessages(session: AgentSession): UiMessage[] {
         });
       }
       if (m.content) segments.push({ kind: "text", id: nextSegId(), content: m.content });
-      out.push({ uid: nextUid(), role: "assistant", segments, timestamp: m.timestamp, modelLabel });
+      // The engine persists one assistant message per step, so a multi-step
+      // reply is stored as assistant -> tool -> assistant -> ... . Merge
+      // consecutive assistant entries of the same turn into ONE bubble so the
+      // "Agent" name header appears exactly once per reply (mirrors live runs,
+      // which stream all steps into a single assistant message).
+      const last = out[out.length - 1];
+      if (last && last.role === "assistant") {
+        last.segments.push(...segments);
+      } else {
+        out.push({ uid: nextUid(), role: "assistant", segments, timestamp: m.timestamp, modelLabel });
+      }
     } else if (m.role === "tool") {
       // Attach the tool result to the last assistant message's matching tool call.
       const last = [...out].reverse().find((x) => x.role === "assistant");
@@ -487,6 +498,8 @@ const selectedDaemonId = ref("");
 const autoApprove = ref(false);
 const prompt = ref("");
 const mode = ref<"normal" | "fix" | "msl">("normal");
+/** File referenced by the user via "Ask Agent" entry points - shown as a tag. */
+const referencedFile = ref<string>("");
 
 // Sync daemonId when instance changes
 watch(selectedInstanceId, (id) => {
@@ -525,6 +538,30 @@ const inputTextarea = ref<HTMLTextAreaElement | null>(null);
 const usageInfo = ref<AgentUsage | null>(null);
 const collapsedThinking = ref<Set<string>>(new Set());
 const expandedTools = ref<Set<string>>(new Set());
+
+// SSE heartbeat watchdog: every decoded event/heartbeat pokes it. If the
+// provider stream dies silently (or the panel connection is severed) no
+// done/error arrives and the UI would stay disabled forever. We abort and
+// surface a visible message instead of waiting indefinitely.
+const SSE_IDLE_TIMEOUT = 90000;
+let sseIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let sseLastActivity = 0;
+
+function pokeSseActivity() {
+  sseLastActivity = Date.now();
+  if (sseIdleTimer) clearTimeout(sseIdleTimer);
+  sseIdleTimer = setTimeout(() => {
+    if (streaming.value && Date.now() - sseLastActivity >= SSE_IDLE_TIMEOUT - 500) {
+      message.warning(t("TXT_CODE_agent_sse_timeout"));
+      abortRun();
+    }
+  }, SSE_IDLE_TIMEOUT);
+}
+
+function clearSseWatchdog() {
+  if (sseIdleTimer) clearTimeout(sseIdleTimer);
+  sseIdleTimer = null;
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -579,14 +616,29 @@ function ensureSegment(msg: UiMessage, kind: UiSegment["kind"], create: () => Ui
   return seg;
 }
 
-/** Find the live (last) tool segment for the given call index. */
 /** Live tool segment by call id (indexes restart every step and collide). */
 function toolSegment(msg: UiMessage, callId: string, index?: number): UiSegment | undefined {
-  for (let i = msg.segments.length - 1; i >= 0; i--) {
-    const s = msg.segments[i];
-    if (s.kind === "tool" && s.tool) {
-      if (callId && s.tool.id === callId) return s;
-      if (!callId && typeof index === "number" && s.tool.index === index) return s;
+  // Prefer an exact call-id match (ids are unique across the whole run).
+  if (callId) {
+    for (let i = msg.segments.length - 1; i >= 0; i--) {
+      const s = msg.segments[i];
+      if (s.kind === "tool" && s.tool && s.tool.id === callId) return s;
+    }
+  }
+  // Fallback by index, but ONLY for the live segment of the call currently
+  // streaming. tool_args may arrive without the real id (older engine) and
+  // indexes restart at 0 every step, so a done/pending segment never matches.
+  if (typeof index === "number") {
+    for (let i = msg.segments.length - 1; i >= 0; i--) {
+      const s = msg.segments[i];
+      if (
+        s.kind === "tool" &&
+        s.tool &&
+        s.tool.index === index &&
+        (s.tool.status === "running" || s.tool.status === "pending")
+      ) {
+        return s;
+      }
     }
   }
   return undefined;
@@ -649,6 +701,7 @@ async function sendMessage() {
   currentStep.value = 0;
   usageInfo.value = null;
   abortController.value = new AbortController();
+  pokeSseActivity();
 
   try {
     // Ensure daemonId is set for instance workspace
@@ -671,6 +724,7 @@ async function sendMessage() {
         mode: mode.value || "normal",
         daemonId: daemonId || undefined,
         instanceUuid: workspaceType.value === "instance" ? selectedInstanceId.value : undefined,
+        file: referencedFile.value || undefined,
         stream: true
       }),
       signal: abortController.value.signal
@@ -691,6 +745,9 @@ async function sendMessage() {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      // Any raw byte counts as activity (covers keep-alive / comment frames
+      // and partial events that never reach handleSSEEvent).
+      pokeSseActivity();
       buffer += decoder.decode(value, { stream: true });
       let idx: number;
       while ((idx = buffer.indexOf("\n\n")) >= 0) {
@@ -705,6 +762,7 @@ async function sendMessage() {
         }
         pendingEvent = "";
         if (!dataStr) continue;
+        pokeSseActivity();
         try {
           handleSSEEvent(event, JSON.parse(dataStr));
         } catch {
@@ -721,6 +779,7 @@ async function sendMessage() {
       messages.value.push({ uid: nextUid(), role: "assistant", segments: [{ kind: "error", id: nextSegId(), error: "Error: " + err.message }], timestamp: new Date().toISOString() });
     }
   } finally {
+    clearSseWatchdog();
     streaming.value = false;
     abortController.value = null;
     // Close any live indicators
@@ -768,7 +827,10 @@ function handleSSEEvent(event: string, data: any) {
       };
       msg.segments.push(seg);
     } else if (seg.tool) {
+      // Segment was created earlier by tool_args (without the real id) - adopt
+      // the id now so subsequent tool / tool_pending events match exactly.
       seg.tool.status = "running";
+      seg.tool.id = callId || seg.tool.id;
       seg.tool.name = name || seg.tool.name;
     }
   } else if (event === "tool_args") {
@@ -777,7 +839,10 @@ function handleSSEEvent(event: string, data: any) {
     const callId = String(data.id || ("call_" + index));
     let seg = toolSegment(msg, callId, index);
     if (!seg) {
-      seg = { kind: "tool", id: nextSegId(), tool: { index, id: callId, name: "tool", argsRaw: "", status: "running" } };
+      // tool_args can race ahead of tool_start; open a running card and let
+      // tool_start fill in the real id/name. Never name it "tool" permanently -
+      // that placeholder only lasts until tool_start arrives.
+      seg = { kind: "tool", id: nextSegId(), tool: { index, id: callId, name: "", argsRaw: "", status: "running" } };
       msg.segments.push(seg);
     }
     if (seg.tool) seg.tool.argsRaw += String(data.delta || "");
@@ -795,6 +860,9 @@ function handleSSEEvent(event: string, data: any) {
       msg.segments.push(seg);
     }
     if (seg.tool) {
+      // Adopt the real id if the card was created earlier by tool_args.
+      seg.tool.id = callId || seg.tool.id;
+      seg.tool.name = String(data.name || seg.tool.name || "tool");
       seg.tool.status = "pending";
       seg.tool.approvalId = data.approvalId;
     }
@@ -812,7 +880,8 @@ function handleSSEEvent(event: string, data: any) {
       msg.segments.push(seg);
     }
     if (seg.tool) {
-      seg.tool.name = String(data.name || seg.tool.name);
+      seg.tool.id = String(data.id || seg.tool.id);
+      seg.tool.name = String(data.name || seg.tool.name || "tool");
       seg.tool.argsRaw = typeof data.args === "string" ? data.args : JSON.stringify(data.args || {}, null, 2).slice(0, 4000);
       seg.tool.result = String(data.result || "");
       seg.tool.status = data.status === "error" ? "error" : "done";
@@ -854,6 +923,11 @@ function handleSSEEvent(event: string, data: any) {
   } else if (event === "error") {
     const msg = ensureAssistantMessage();
     msg.segments.push({ kind: "error", id: nextSegId(), error: data.message || t("TXT_CODE_agent_error") });
+  } else if (event === "done") {
+    // Engine finished cleanly: close live indicators now instead of waiting
+    // for the connection to end (also stops the idle watchdog from firing
+    // during a long tail between done and socket close).
+    pokeSseActivity();
   }
 }
 
@@ -1031,12 +1105,15 @@ function applyQueryParams() {
   const file = params.get("file");
   const ws = params.get("workspace");
   const seed = params.get("prompt");
-  if (inst && daemon) {
+  // A referenced file is displayed as a removable tag; the user still writes
+  // their own question. Never pre-fill a canned prompt here.
+  if (file) referencedFile.value = file;
+  if (inst && daemon && inst !== GLOBAL_INSTANCE_UUID) {
     selectedInstanceId.value = inst;
     selectedDaemonId.value = daemon;
     if (seed) prompt.value = seed;
-    else if (file) prompt.value = "Analyze the file " + file + " in this workspace.";
   } else if (ws) {
+    // System folder mode: global0001 (non-instance browse) lands here.
     workspaceType.value = "folder";
     workspace.value = ws;
     if (seed) prompt.value = seed;
@@ -1055,7 +1132,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer);
-  abortController.value?.abort();
+  // Full stop on leave: abort the local fetch AND tell the panel to abort the
+  // engine run, so the Agent stops working (and stops mutating files) even
+  // when the user navigates away mid-run.
+  abortRun();
 });
 </script>
 
@@ -1103,7 +1183,7 @@ onUnmounted(() => {
             <template #icon><MenuOutlined /></template>
           </a-button>
           <div class="brand">
-            <div class="brand-logo"><RobotOutlined /></div>
+            <div class="brand-logo"><AgentStarIcon :size="17" :sparkle="true" /></div>
             <div class="brand-text">
               <span class="brand-name">MCSM-AI</span>
               <span class="brand-sub">Agent</span>
@@ -1131,7 +1211,7 @@ onUnmounted(() => {
       <div ref="chatContainer" class="messages">
         <div class="messages-inner">
           <div v-if="!messages.length && !streaming" class="welcome">
-            <div class="welcome-badge"><RobotOutlined /></div>
+            <div class="welcome-badge"><AgentStarIcon :size="30" :sparkle="true" /></div>
             <div class="welcome-title">MCSM-AI <span>Agent</span></div>
             <p>{{ t("TXT_CODE_agent_welcome_sub") }}</p>
             <div class="welcome-chips">
@@ -1152,7 +1232,10 @@ onUnmounted(() => {
             <template v-else>
               <div class="msg-body">
                 <div class="msg-head">
-                  <span class="agent-name">{{ t("TXT_CODE_agent_agent") }}</span>
+                  <span class="agent-name">
+                    <AgentStarIcon :size="12" class="agent-name-star" />
+                    {{ t("TXT_CODE_agent_agent") }}
+                  </span>
                   <span v-if="msg.modelLabel" class="agent-model-chip">{{ msg.modelLabel }}</span>
                 </div>
 
@@ -1244,6 +1327,13 @@ onUnmounted(() => {
       <!-- Input card -->
       <div class="input-wrap">
         <div class="input-card" :class="{ focused: inputFocused }">
+          <div v-if="referencedFile" class="ref-file-row">
+            <span class="ref-file-tag">
+              <FileOutlined />
+              <span class="ref-file-text" :title="referencedFile">{{ referencedFile }}</span>
+              <CloseOutlined class="ref-file-close" @click="referencedFile = ''" />
+            </span>
+          </div>
           <div class="input-card-textarea">
             <textarea
               ref="inputTextarea"
@@ -1445,7 +1535,7 @@ onUnmounted(() => {
           </div>
 
           <div v-if="modelOptions.length" class="drawer-card">
-            <div class="drawer-card-title"><RobotOutlined /> {{ t("TXT_CODE_agent_provider_models") }}</div>
+            <div class="drawer-card-title"><AgentStarIcon :size="13" gradient /> {{ t("TXT_CODE_agent_provider_models") }}</div>
             <div class="model-list">
               <div
                 v-for="opt in modelOptions"
@@ -1622,9 +1712,13 @@ export default defineComponent({ name: "AgentPage" });
 .agent-page {
   position: relative;
   display: flex;
-  height: calc(100svh - 130px);
+  height: calc(100svh - 146px);
   min-height: 420px;
+  margin: 0 16px 16px;
   overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--color-gray-5);
+  box-shadow: var(--ag-shadow);
   background-color: var(--level-2-bg-color, var(--background-color));
   backdrop-filter: saturate(110%) blur(4px);
   -webkit-backdrop-filter: saturate(110%) blur(4px);
@@ -1634,8 +1728,8 @@ export default defineComponent({ name: "AgentPage" });
   --ag-accent-2: #0958d9;
   --ag-grad: linear-gradient(135deg, #1677ff 0%, #4096ff 60%, #69b1ff 100%);
   --ag-grad-soft: linear-gradient(135deg, rgba(22,119,255,0.14), rgba(64,150,255,0.1));
-  --ag-radius: 8px;
-  --ag-shadow: 0 8px 30px rgba(31, 41, 80, 0.08);
+  --ag-radius: 12px;
+  --ag-shadow: 0 16px 44px rgba(31, 41, 80, 0.12), 0 2px 8px rgba(31, 41, 80, 0.06);
   --ag-border: var(--card-border-color);
 }
 
@@ -1647,11 +1741,11 @@ export default defineComponent({ name: "AgentPage" });
   width: 264px; flex-shrink: 0; border-right: 1px solid var(--ag-border);
   display: flex; flex-direction: column; background-color: var(--background-color-white);
 
-  .sidebar-new { margin: 14px 12px 8px;
-    .new-session-btn { border-radius: 10px; box-shadow: 0 4px 14px rgba(22,119,255,0.35); }
+  .sidebar-new { margin: 16px 14px 10px;
+    .new-session-btn { border-radius: 12px; box-shadow: 0 4px 14px rgba(22,119,255,0.35); }
   }
 
-  .conv-list { flex: 1; overflow-y: auto; padding: 4px 10px 10px;
+  .conv-list { flex: 1; overflow-y: auto; padding: 6px 12px 12px;
     .conv-item { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; margin-top: 4px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; transition: background-color 0.15s ease, border-color 0.15s ease;
       &:hover { background-color: var(--color-gray-3); }
       &.active { background-color: var(--ag-grad-soft); border-color: rgba(22,119,255,0.35);
@@ -1677,13 +1771,15 @@ export default defineComponent({ name: "AgentPage" });
 // ------------------------------------------------------------------
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .topbar {
-  display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 16px;
+  display: flex; align-items: center; gap: 12px; height: 58px; padding: 0 18px;
   border-bottom: 1px solid var(--ag-border); background-color: var(--background-color-white); flex-shrink: 0; z-index: 5;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 
   .topbar-left { display: flex; align-items: center; gap: 8px; }
   .topbar-menu-btn { display: none; }
   .brand { display: inline-flex; align-items: center; gap: 8px;
-    .brand-logo { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); box-shadow: 0 4px 12px rgba(22,119,255,0.35); font-size: 15px; }
+    .brand-logo { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); box-shadow: 0 4px 12px rgba(22,119,255,0.35); transition: transform 0.2s ease; }
+    .brand-logo:hover { transform: rotate(-8deg) scale(1.06); }
     .brand-text { display: flex; align-items: baseline; gap: 6px;
       .brand-name { font-size: 15px; font-weight: 700; background: var(--ag-grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
       .brand-sub { font-weight: 400; color: var(--color-gray-7); font-size: 12px; }
@@ -1704,11 +1800,13 @@ export default defineComponent({ name: "AgentPage" });
 // ------------------------------------------------------------------
 // Messages
 // ------------------------------------------------------------------
-.messages { flex: 1; overflow-y: auto; padding: 20px 0 8px;
+.messages { flex: 1; overflow-y: auto; padding: 22px 0 10px;
   .messages-inner { max-width: 840px; margin: 0 auto; padding: 0 20px; }
 
   .welcome { max-width: 620px; margin: 48px auto 24px; text-align: center; padding: 0 20px;
-    .welcome-badge { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #fff; background: var(--ag-grad); box-shadow: 0 10px 30px rgba(22,119,255,0.35); animation: welcome-float 3.4s ease-in-out infinite; }
+    .welcome-badge { position: relative; width: 68px; height: 68px; margin: 0 auto 18px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: #fff; background: var(--ag-grad); box-shadow: 0 10px 30px rgba(22,119,255,0.35); animation: welcome-float 3.4s ease-in-out infinite;
+      &::after { content: ""; position: absolute; inset: -10px; border-radius: 22px; background: radial-gradient(closest-side, rgba(22,119,255,0.18), transparent); z-index: -1; }
+    }
     .welcome-title { font-size: 26px; font-weight: 800; margin-bottom: 8px; background: var(--ag-grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
       span { font-weight: 400; font-size: 18px; -webkit-text-fill-color: var(--color-gray-7); }
     }
@@ -1730,7 +1828,9 @@ export default defineComponent({ name: "AgentPage" });
     }
 
     .msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px;
-      .agent-name { font-size: 13px; font-weight: 700; color: var(--text-color); display: flex; align-items: center; gap: 5px; }
+      .agent-name { font-size: 13px; font-weight: 700; color: var(--text-color); display: flex; align-items: center; gap: 5px;
+        .agent-name-star { color: var(--ag-accent-2); }
+      }
       .agent-model-chip { font-size: 10.5px; color: var(--color-gray-7); background-color: var(--color-gray-2); border: 1px solid var(--ag-border); padding: 1.5px 8px; border-radius: 999px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
 
@@ -1808,16 +1908,26 @@ export default defineComponent({ name: "AgentPage" });
 // Input card
 // ------------------------------------------------------------------
 .input-wrap { padding: 6px 0 14px; flex-shrink: 0; }
+
+// File reference tag (Ask Agent deep-link): shows the referenced file path,
+// removable, never expands the file content into the prompt.
+.ref-file-row { max-width: 840px; margin: 0 auto 8px; padding: 0 2px; }
+.ref-file-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px; border-radius: 8px; font-size: 12px; color: var(--ag-accent-2); background: var(--ag-grad-soft); border: 1px solid rgba(22,119,255,0.35); }
+.ref-file-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 460px; font-family: ui-monospace, Consolas, monospace; }
+.ref-file-close { flex-shrink: 0; font-size: 11px; cursor: pointer; opacity: 0.7; transition: opacity 0.15s;
+  &:hover { opacity: 1; }
+}
+
 .input-card {
   max-width: 840px; margin: 0 auto; padding: 12px 14px 10px;
-  border-radius: 10px;
+  border-radius: 14px;
   background-color: var(--background-color-white);
   border: 1px solid var(--ag-border);
-  box-shadow: var(--ag-shadow);
+  box-shadow: 0 10px 34px rgba(31,41,80,0.10), 0 2px 8px rgba(31,41,80,0.05);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
   position: relative;
 
-  &.focused { border-color: rgba(22,119,255,0.35); box-shadow: 0 0 0 4px rgba(22,119,255,0.35), 0 10px 34px rgba(22,119,255,0.35); }
+  &.focused { border-color: rgba(22,119,255,0.35); box-shadow: 0 0 0 4px rgba(22,119,255,0.35), 0 12px 36px rgba(22,119,255,0.35); }
 
   .input-card-textarea {
     textarea { width: 100%; border: none; outline: none; resize: none; font: inherit; font-size: 14px; line-height: 1.65; padding: 2px 2px 8px; background: transparent; color: var(--text-color); max-height: 220px;
@@ -1845,7 +1955,7 @@ export default defineComponent({ name: "AgentPage" });
         &:hover { border-color: var(--ag-accent); }
       }
 
-      .send-btn { width: 34px; height: 34px; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); box-shadow: 0 4px 12px rgba(22,119,255,0.35); transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s; font-size: 15px;
+      .send-btn { width: 36px; height: 36px; border-radius: 12px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); box-shadow: 0 4px 12px rgba(22,119,255,0.35); transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s; font-size: 15px;
         &:hover:not(.disabled) { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(22,119,255,0.35); }
         &:active:not(.disabled) { transform: translateY(0); }
         &.disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
@@ -1871,8 +1981,8 @@ export default defineComponent({ name: "AgentPage" });
   --ag-grad: linear-gradient(135deg, #1677ff 0%, #4096ff 60%, #69b1ff 100%);
   --ag-grad-soft: linear-gradient(135deg, rgba(22,119,255,0.14), rgba(64,150,255,0.1));
   --ag-border: var(--card-border-color);
-  border-radius: 12px 0 0 12px;
-  box-shadow: -12px 0 34px rgba(31,41,80,0.12);
+  border-radius: 16px 0 0 16px;
+  box-shadow: -16px 0 40px rgba(31,41,80,0.14);
 }
 :global(.agent-drawer .ant-drawer-content-wrapper) { box-shadow: none; }
 // ------------------------------------------------------------------
@@ -1880,7 +1990,7 @@ export default defineComponent({ name: "AgentPage" });
 // ------------------------------------------------------------------
 .drawer-inner { display: flex; flex-direction: column; min-height: 100%; }
 .drawer-head { display: flex; align-items: center; gap: 12px; padding: 2px 2px 14px; border-bottom: 1px solid var(--ag-border);
-  .drawer-head-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); font-size: 17px; box-shadow: 0 4px 12px rgba(22,119,255,0.35); }
+  .drawer-head-icon { width: 38px; height: 38px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--ag-grad); font-size: 17px; box-shadow: 0 4px 12px rgba(22,119,255,0.35); }
   .drawer-head-title { flex: 1; min-width: 0;
     .drawer-title { font-size: 15px; font-weight: 700; }
     .drawer-sub { font-size: 11px; color: var(--color-gray-7); }
@@ -2034,7 +2144,8 @@ export default defineComponent({ name: "AgentPage" });
 @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 :global(.app-layout-sidebar-only) .agent-page {
-  height: 100svh;
+  height: calc(100svh - 93px);
+  margin: 10px 16px 16px;
 }
 
 // Responsive
@@ -2049,7 +2160,7 @@ export default defineComponent({ name: "AgentPage" });
   .conv-item-del { opacity: 1; }
 }
 @media (max-width: 640px) {
-  .agent-page { height: calc(100svh - 116px); }
+  .agent-page { height: calc(100svh - 124px); margin: 0 10px 8px; }
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 12px 10px; row-gap: 6px; }
   .topbar-center { order: 3; flex-basis: 100%; justify-content: flex-start; overflow-x: auto; }
   .messages { padding: 12px 0 4px; }

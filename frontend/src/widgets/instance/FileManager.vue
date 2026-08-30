@@ -30,16 +30,17 @@ import {
   KeyOutlined,
   PauseOutlined,
   PlusOutlined,
-  RobotOutlined,
   ScissorOutlined,
   SearchOutlined,
   UploadOutlined
 } from "@ant-design/icons-vue";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 import { Modal, type ItemType, type UploadChangeParam, type UploadProps } from "ant-design-vue";
 import dayjs from "dayjs";
 import { computed, h, nextTick, onMounted, onUnmounted, ref, type CSSProperties } from "vue";
 import FileEditor from "./dialogs/FileEditor.vue";
 import { useAppRouters } from "@/hooks/useAppRouters";
+import { GLOBAL_INSTANCE_UUID } from "@/config/const";
 
 const props = defineProps<{
   card: LayoutCard;
@@ -50,14 +51,32 @@ const instanceId = getMetaOrRouteValue("instanceId");
 const daemonId = getMetaOrRouteValue("daemonId");
 const { toPage } = useAppRouters();
 
-/** Deep-link into the Agent page bound to this instance workspace. */
+/**
+ * Deep-link into the Agent page bound to the current browsing location.
+ *
+ * - Top "Ask Agent" button (no file): bind the workspace only - the Agent is
+ *   already in the right folder, no file reference and no canned prompt.
+ * - File-row "Ask Agent": attach the file path as a reference tag.
+ * - Non-instance system files (global0001): never pass the fake instance id;
+ *   switch the Agent to "system folder" mode with the absolute folder path.
+ */
 const openAgent = (file = "") => {
+  if (!instanceId || instanceId === GLOBAL_INSTANCE_UUID) {
+    toPage({
+      path: "/agent",
+      query: {
+        workspace: currentPath.value,
+        ...(file ? { file: currentPath.value + file } : {})
+      }
+    });
+    return;
+  }
   toPage({
     path: "/agent",
     query: {
       instanceUuid: instanceId ?? "",
       daemonId: daemonId ?? "",
-      file: file || currentPath.value || ""
+      ...(file ? { file: currentPath.value + file } : {})
     }
   });
 };
@@ -545,8 +564,8 @@ onUnmounted(() => {
               {{ t("TXT_CODE_a53573af") }}
             </a-button>
 
-            <a-button type="primary" ghost @click="openAgent()" title="Ask the AI Agent about this workspace">
-              <template #icon><RobotOutlined /></template>
+            <a-button type="primary" ghost title="Ask the AI Agent about this workspace" @click="openAgent()">
+              <template #icon><AgentStarIcon :size="14" /></template>
               Ask Agent
             </a-button>
 
@@ -807,7 +826,7 @@ onUnmounted(() => {
                           size="small"
                           @click="openAgent(record.name)"
                         >
-                          <RobotOutlined />
+                          <AgentStarIcon :size="14" />
                         </a-button>
                       </a-tooltip>
                       <a-tooltip

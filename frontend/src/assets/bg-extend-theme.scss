@@ -24,14 +24,24 @@
     background-color: var(--level-1-bg-color);
     backdrop-filter: blur(3px) !important;
   }
-  .ant-btn-primary {
+  // Solid primary/danger buttons only: ghost buttons keep their semantics
+  // (transparent background + primary-color text/border), otherwise blue text
+  // on a translucent blue fill destroys the text/background contrast.
+  .ant-btn-primary:not(.ant-btn-background-ghost) {
     background-color: var(--primary-btn-color);
     backdrop-filter: blur(3px) !important;
   }
 
-  .ant-btn-dangerous {
+  .ant-btn-dangerous:not(.ant-btn-background-ghost) {
     background-color: var(--danger-btn-color);
     backdrop-filter: blur(3px) !important;
+  }
+
+  // Ghost buttons: hard-code transparent so no background-image mode override
+  // can leak a fill behind the primary-colored label.
+  .ant-btn.ant-btn-background-ghost {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
   }
 
   .ant-input-affix-wrapper,

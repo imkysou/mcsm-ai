@@ -1,7 +1,7 @@
 import os from "os";
 import osUtils from "os-utils";
 import fs from "fs";
-import { execSync } from "child_process";
+import { exec, type ChildProcess } from "child_process";
 
 interface IInfoTable {
   [key: string]: number;
@@ -113,21 +113,13 @@ function computePerCoreUsage(current: ICpuTimes[], previous: ICpuTimes[] | null)
 const VIRTUAL_IF_PATTERN = /^(lo|veth|docker|br-|virbr|vnet|tun|tap|kube|flannel|cni|tailscale|wg|zt|vmnet|vbox|utun|utun[0-9])/i;
 
 /**
- * Read cumulative byte counters of every network interface.
- * - Linux: parse /proc/net/dev; loopback and virtual interfaces (container
- *   bridges, VPN tunnels, ...) are skipped because they would double count the
- *   same transfer.
- * - Windows: query Get-NetAdapterStatistics (PowerShell, built into Win8+).
- *   Only the loopback adapter is skipped; virtual proxy adapters such as
- *   "FlClash" are kept because users may route real traffic through them.
+ * Read cumulative byte counters of every network interface on Linux.
+ * Loopback and virtual interfaces (container bridges, VPN tunnels, ...) are
+ * skipped because they would double count the same transfer.
+ * This runs synchronously only because /proc/net/dev is a cheap file read.
  */
-function readNetInterfaces(): { name: string; rxBytes: number; txBytes: number }[] {
-  if (os.platform() === "win32") {
-    return readNetInterfacesOnWindows();
-  }
-  if (os.platform() !== "linux") {
-    return [];
-  }
+function readNetInterfacesLinux(): { name: string; rxBytes: number; txBytes: number }[] {
+  if (os.platform() !== "linux") return [];
   try {
     const data = fs.readFileSync("/proc/net/dev", { encoding: "utf-8" });
     const lines = data.split("\n").slice(2);
@@ -154,8 +146,13 @@ function readNetInterfaces(): { name: string; rxBytes: number; txBytes: number }
   }
 }
 
-/** Read per-adapter cumulative bytes on Windows via Get-NetAdapterStatistics. */
-function readNetInterfacesOnWindows(): { name: string; rxBytes: number; txBytes: number }[] {
+/**
+ * Read per-adapter cumulative bytes on Windows via Get-NetAdapterStatistics.
+ * IMPORTANT: powershell.exe startup costs 1-2s of CPU, so this must run
+ * asynchronously (non-blocking) and at a low frequency (10s), never on the
+ * hot system-info loop. The returned array may be empty on transient failure.
+ */
+function readNetInterfacesOnWindowsAsync(callback: (list: { name: string; rxBytes: number; txBytes: number }[]) => void) {
   const script =
     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
     " $ErrorActionPreference='SilentlyContinue';" +
@@ -163,24 +160,40 @@ function readNetInterfacesOnWindows(): { name: string; rxBytes: number; txBytes:
     " Select-Object Name, @{N='Rx';E={[long]$_.ReceivedBytes}}, @{N='Tx';E={[long]$_.SentBytes}};" +
     " $list | ConvertTo-Json -Compress";
   try {
-    const output = execSync(
+    const proc: ChildProcess = exec(
       'powershell.exe -NoProfile -NonInteractive -Command "' + script + '"',
-      { encoding: "utf8", timeout: 5000, windowsHide: true }
-    )
-      .toString()
-      .trim();
-    if (!output || output === "null") return [];
-    let parsed: any = JSON.parse(output);
-    if (!Array.isArray(parsed)) parsed = [parsed];
-    return (parsed as any[])
-      .filter((v: any) => v && typeof v.Name === "string" && v.Name.length > 0)
-      .map((v: any) => ({
-        name: String(v.Name),
-        rxBytes: Math.max(0, Number(v.Rx) || 0),
-        txBytes: Math.max(0, Number(v.Tx) || 0)
-      }));
+      { encoding: "utf8", timeout: 8000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          callback([]);
+          return;
+        }
+        const output = String(stdout).trim();
+        if (!output || output === "null") {
+          callback([]);
+          return;
+        }
+        try {
+          let parsed: any = JSON.parse(output);
+          if (!Array.isArray(parsed)) parsed = [parsed];
+          callback(
+            (parsed as any[])
+              .filter((v: any) => v && typeof v.Name === "string" && v.Name.length > 0)
+              .map((v: any) => ({
+                name: String(v.Name),
+                rxBytes: Math.max(0, Number(v.Rx) || 0),
+                txBytes: Math.max(0, Number(v.Tx) || 0)
+              }))
+          );
+        } catch {
+          callback([]);
+        }
+      }
+    );
+    // Prevent the spawned process from keeping the event loop alive.
+    proc.unref();
   } catch {
-    return [];
+    callback([]);
   }
 }
 
@@ -193,33 +206,22 @@ function computeByteRate(current: number, previous: number, elapsedSec: number):
   return Math.round(delta / elapsedSec);
 }
 
-/** Refresh per-core CPU usage and network transfer rates. */
-function refreshDerivedMetrics() {
-  // Per-core CPU usage
-  const currentCpus = readCpuTimes();
-  info.cpus = computePerCoreUsage(currentCpus, previousCpus);
-  previousCpus = currentCpus;
-
-  // Network: refresh per-interface counters and aggregate rates.
-  const interfaces = readNetInterfaces();
-  if (interfaces.length === 0) {
-    // Transient read failure (e.g. PowerShell query interrupted): keep the
-    // previous byte counters as baseline and show 0 instead of computing a
-    // bogus rate from an empty counter set.
-    info.netInterfaces = [];
-    info.netInRate = 0;
-    info.netOutRate = 0;
-    return;
-  }
+/**
+ * Apply a freshly read interface list into the shared stats: update the
+ * per-interface table and derive aggregate transfer rates from byte deltas.
+ * Empty lists (transient read failure) keep the previous counters untouched.
+ */
+function applyNetworkStats(interfaces: { name: string; rxBytes: number; txBytes: number }[]) {
+  if (interfaces.length === 0) return; // keep previous data, avoid bogus rates
   info.netInterfaces = interfaces;
 
   const netIn = interfaces.reduce((sum, v) => sum + v.rxBytes, 0);
   const netOut = interfaces.reduce((sum, v) => sum + v.txBytes, 0);
   const now = Date.now();
 
-  // First sample: record the cumulative counters as a baseline, no rate yet.
-  // Without this a freshly started process would report the boot-time accumulated
-  // bytes (potentially many GB) as an instantaneous transfer rate spike.
+  // First sample: record cumulative counters as a baseline, no rate yet.
+  // Without this a fresh process would report the boot-time accumulated bytes
+  // (potentially many GB) as an instantaneous transfer-rate spike.
   if (previousNetIn < 0 || previousNetOut < 0) {
     previousNetIn = netIn;
     previousNetOut = netOut;
@@ -235,6 +237,32 @@ function refreshDerivedMetrics() {
   previousNetSampleTime = now;
 }
 
+/**
+ * Low-frequency (10s) asynchronous network stats refresh, decoupled from the
+ * 3s CPU/mem loop. On Windows this spawns powershell.exe (1-2s cost), so it
+ * must never block the event loop nor run more often than necessary.
+ */
+let networkStatsTask: NodeJS.Timeout | undefined;
+function startNetworkStatsTask() {
+  if (networkStatsTask) return;
+  const tick = () => {
+    if (os.platform() === "win32") {
+      readNetInterfacesOnWindowsAsync(applyNetworkStats);
+    } else {
+      applyNetworkStats(readNetInterfacesLinux());
+    }
+  };
+  tick(); // immediate first sample (establishes baseline)
+  networkStatsTask = setInterval(tick, 10000);
+}
+
+/** Refresh per-core CPU usage (fast, non-blocking; runs on the 3s loop). */
+function refreshDerivedMetrics() {
+  const currentCpus = readCpuTimes();
+  info.cpus = computePerCoreUsage(currentCpus, previousCpus);
+  previousCpus = currentCpus;
+}
+
 // periodically refresh the cache
 setInterval(() => {
   if (os.platform() === "linux") {
@@ -245,6 +273,9 @@ setInterval(() => {
     otherSystemInfo();
   }
 }, 3000);
+
+// Decoupled low-frequency network stats (see startNetworkStatsTask).
+startNetworkStatsTask();
 
 function otherSystemInfo() {
   info.freemem = os.freemem();

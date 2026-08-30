@@ -1,7 +1,7 @@
 import axios from "axios";
 import configStore, { modelList } from "./config_store";
 import { findTool, toolDefinitions, type ToolContext } from "./tools";
-import { buildSystemPrompt, buildWorkspaceContext, stripModeTag } from "./prompt";
+import { buildSystemPrompt, buildFileReference, buildWorkspaceContext, stripModeTag } from "./prompt";
 import ApprovalStore from "./approvals";
 import { evaluatePermission, type PermissionRule } from "./permission";
 import SessionStore from "./sessions";
@@ -21,7 +21,43 @@ const MAX_STEPS = 40;
 const MAX_OUTPUT = 20000;
 /** Longest a single provider stream may run before being killed. */
 const STREAM_TIMEOUT = 300000;
+/**
+ * Provider-stream IDLE watchdog. axios `timeout` only covers the response
+ * HEADERS phase once responseType is "stream"; after that a stalled provider
+ * (no bytes, no close) hangs the for-await loop forever. This is the classic
+ * "card stuck, resumes after a random delay" symptom: the engine sits in the
+ * socket until the network layer finally errors. Reset on every received
+ * chunk; firing aborts the request with a clear error.
+ */
+const STREAM_IDLE_TIMEOUT = 60000;
 
+
+/**
+ * Simple idle watchdog: starts a timer that fires when the deadline passes
+ * without a poke(); clear() stops it. Used to detect a provider stream that
+ * went silent mid-transfer (raw socket stays open, no bytes flow).
+ */
+class IdleGuard {
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly ms: number, private readonly onIdle: () => void) {}
+
+  start() {
+    this.clear();
+    this.timer = setTimeout(() => this.onIdle(), this.ms);
+    this.timer.unref?.();
+  }
+
+  poke() {
+    // Reset the countdown on any activity.
+    this.start();
+  }
+
+  clear() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+}
 
 /** Read a provider error body even when it is a stream (responseType: stream). */
 async function readErrorBody(data: any): Promise<string> {
@@ -132,7 +168,9 @@ function consumeChunk(
       if (typeof fn.arguments === "string" && fn.arguments) {
         current.arguments += fn.arguments;
         changed = true;
-        emit("tool_args", { index, delta: fn.arguments });
+        // Include the call id (and name when known) so the frontend matches the
+        // exact segment created by tool_start instead of a "call_index" fallback.
+        emit("tool_args", { index, id: step.toolCalls[index]!.id, name: current.name, delta: fn.arguments });
       }
     }
     void changed;
@@ -196,7 +234,10 @@ export class AgentEngine {
 
     // Build the message list for this turn.
     const systemPrompt = buildSystemPrompt(mode);
-    const userContent = stripModeTag(config.prompt) + buildWorkspaceContext(config.workspace);
+    const userContent =
+      stripModeTag(config.prompt) +
+      buildWorkspaceContext(config.workspace) +
+      buildFileReference(config.workspace, config.file || "");
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt, timestamp: new Date().toISOString() },
       ...session.messages.map((m) => ({ ...m })),
@@ -219,7 +260,8 @@ export class AgentEngine {
         endpoint: provider.searchEndpoint || "",
         apiKey: provider.searchApiKey || ""
       },
-      emit
+      emit,
+      signal
     };
 
     let steps = 0;
@@ -254,14 +296,30 @@ export class AgentEngine {
 
         // 1) Stream the provider reply.
         const step: StepStream = { reasoning: "", content: "", toolCalls: [] };
-        try {
-          const res = await axios.post(url, payload, {
-            headers,
-            timeout: STREAM_TIMEOUT,
-            maxContentLength: Infinity,
-            responseType: "stream",
-            signal: signal as any
+        // Provider-stream watchdog: axios timeout stops at the response HEADERS
+        // for stream responses, so guard both the header wait AND the body loop.
+        let idleGuard: IdleGuard | null = null;
+        const watchdogPromise = new Promise<never>((_, reject) => {
+          idleGuard = new IdleGuard(STREAM_IDLE_TIMEOUT, () => {
+            reject(new Error(`Provider stream is idle for ${STREAM_IDLE_TIMEOUT / 1000}s (no data received) - aborting`));
           });
+        });
+        idleGuard!.start();
+        try {
+          const res = await (signal
+            ? Promise.race([axios.post(url, payload, {
+                headers,
+                timeout: STREAM_TIMEOUT,
+                maxContentLength: Infinity,
+                responseType: "stream",
+                signal: signal as any
+              }), watchdogPromise])
+            : axios.post(url, payload, {
+                headers,
+                timeout: STREAM_TIMEOUT,
+                maxContentLength: Infinity,
+                responseType: "stream"
+              }));
 
           const stream = res.data as AsyncIterable<Buffer | string>;
           let buffer = "";
@@ -290,6 +348,8 @@ export class AgentEngine {
               }
               consumeChunk(step, chunk, emit);
             }
+            // Any byte keeps the connection alive: reset the idle timer.
+            idleGuard!.poke();
           }
           // Any trailing buffered payload without the standard separator.
           const rest = buffer.trim();
@@ -312,10 +372,17 @@ export class AgentEngine {
             const detail = inner && inner[1] ? inner[1].replace(/\\n/g, " ") : raw || "";
             throw new Error(`Provider error ${err.response.status}: ${detail.slice(0, 400)}`);
           }
+          // Watchdog fired first (or races the network error): surface it so the
+          // UI shows a definitive message instead of a silent stall.
+          if (err?.message?.startsWith("Provider stream is idle")) {
+            throw err;
+          }
           if (err?.code === "ETIMEDOUT" || err?.code === "ECONNABORTED") {
             throw new Error(`Provider response timed out after ${STREAM_TIMEOUT / 1000}s`);
           }
           throw new Error(`Cannot reach provider: ${err.message}`);
+        } finally {
+          (idleGuard as IdleGuard | null)?.clear();
         }
 
         const content = step.content;
@@ -441,13 +508,25 @@ export class AgentEngine {
             }
           }
 
-          // Execute.
+          // Execute. Long-running tools (shell/daemon/network) race against the
+          // run's abort signal so leaving the Agent page stops them immediately
+          // instead of finishing the whole 60s call in the background.
           const started = Date.now();
           let result = "";
           let status: "ok" | "error" = "ok";
           try {
-            result = await tool.impl(args, toolCtx);
+            result = await (signal
+              ? Promise.race([
+                  tool.impl(args, toolCtx),
+                  new Promise<never>((_, reject) => {
+                    const abort = () => reject(new AgentAbortError());
+                    if (signal.aborted) abort();
+                    else signal.addEventListener("abort", abort, { once: true });
+                  })
+                ])
+              : tool.impl(args, toolCtx));
           } catch (err: any) {
+            if (err instanceof AgentAbortError) throw err;
             result = `ERROR: ${err.message}`;
             status = "error";
           }
@@ -504,6 +583,11 @@ export class AgentEngine {
           reject(new AgentAbortError());
           return;
         }
+        // Force the expiry sweep: ApprovalStore.list() is what writes the
+        // expired status back to disk. Relying on some other caller doing it
+        // (e.g. the UI approval poll) makes the wait-for-approval resume at a
+        // RANDOM point - the exact "stuck, then resumes after a while" symptom.
+        try { ApprovalStore.list(); } catch { /* best effort */ }
         const req = ApprovalStore.get(approvalId);
         if (!req) {
           clearInterval(timer);

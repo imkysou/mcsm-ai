@@ -35,9 +35,9 @@ import {
   MoneyCollectOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  RedoOutlined,
-  RobotOutlined
+  RedoOutlined
 } from "@ant-design/icons-vue";
+import AgentStarIcon from "@/components/AgentStarIcon.vue";
 import { Modal } from "ant-design-vue";
 import { computed, h, onUnmounted, ref } from "vue";
 import MslConfigDialog from "./MslConfigDialog.vue";
@@ -438,7 +438,7 @@ onUnmounted(() => {
         <IconBtn :icon="item.icon" :title="item.title" @click="item.click"></IconBtn>
       </span>
       <span v-if="isAdmin" class="mr-2">
-        <IconBtn :icon="RobotOutlined" :title="t('TXT_CODE_ask_agent')" @click="openAgent"></IconBtn>
+        <IconBtn :icon="AgentStarIcon" :title="t('TXT_CODE_ask_agent')" @click="openAgent"></IconBtn>
       </span>
       <a-dropdown>
         <template #overlay>
