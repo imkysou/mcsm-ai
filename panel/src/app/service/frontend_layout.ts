@@ -76,47 +76,12 @@ function getDefaultFrontendLayoutConfig(): IPageLayoutConfig[] {
       items: [
         {
           id: getRandomId(),
-          type: "StatusBlock",
-          title: t("TXT_CODE_e627e546"),
-          meta: {
-            type: "node"
-          },
-          width: 3,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
-        },
-        {
-          id: getRandomId(),
-          type: "StatusBlock",
-          title: t("TXT_CODE_88e9361a"),
-          meta: {
-            type: "instance"
-          },
-          width: 3,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
-        },
-        {
-          id: getRandomId(),
-          type: "StatusBlock",
-          title: t("TXT_CODE_db64faf6"),
-          meta: {
-            type: "users"
-          },
-          width: 3,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
-        },
-        {
-          id: getRandomId(),
-          type: "StatusBlock",
+          meta: {},
+          type: "SystemResource",
           title: t("TXT_CODE_66056676"),
-          meta: {
-            type: "system"
-          },
-          width: 3,
+          width: 12,
           description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
+          height: LayoutCardHeight.MEDIUM
         },
         {
           id: getRandomId(),
@@ -125,43 +90,16 @@ function getDefaultFrontendLayoutConfig(): IPageLayoutConfig[] {
           title: t("TXT_CODE_721157a3"),
           width: 12,
           description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.MEDIUM
+          height: "300px"
         },
         {
           id: getRandomId(),
           meta: {},
           type: "OperationLogCard",
           title: t("TXT_CODE_6a444b79"),
-          width: 4,
+          width: 12,
           description: t("TXT_CODE_9e8c176e"),
           height: LayoutCardHeight.MEDIUM
-        },
-        {
-          id: getRandomId(),
-          meta: {},
-          type: "NodeOverview",
-          title: t("TXT_CODE_bfb50126"),
-          width: 8,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.MEDIUM
-        },
-        {
-          id: getRandomId(),
-          meta: {},
-          type: "RequestChart",
-          title: t("TXT_CODE_a4037a98"),
-          width: 6,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
-        },
-        {
-          id: getRandomId(),
-          meta: {},
-          type: "InstanceChart",
-          title: t("TXT_CODE_d6d9c42c"),
-          width: 6,
-          description: t("TXT_CODE_55ade942"),
-          height: LayoutCardHeight.SMALL
         }
       ]
     },

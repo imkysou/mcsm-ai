@@ -5,8 +5,6 @@ import { t } from "@/lang/i18n";
 import { arrayFilter } from "@/tools/array";
 import type { LayoutCard } from "@/types";
 import {
-  ApiOutlined,
-  AppstoreOutlined,
   ClockCircleOutlined,
   CloudServerOutlined,
   CodeOutlined,
@@ -71,7 +69,7 @@ const overviewList = computed(() => {
     ];
   }
 
-  const { system, version, record, specifiedDaemonVersion, process } = state.value;
+  const { system, record, process } = state.value;
   const free = Number((system.freemem / 1024 / 1024 / 1024).toFixed(1));
   const totalMem = Number((system.totalmem / 1024 / 1024 / 1024).toFixed(1));
   const usedMem = Number(Number(totalMem) - Number(free));
@@ -84,18 +82,7 @@ const overviewList = computed(() => {
       value: system.node,
       icon: CodeOutlined
     },
-    {
-      type: "text",
-      title: t("TXT_CODE_af21e6b"),
-      value: version,
-      icon: AppstoreOutlined
-    },
-    {
-      type: "text",
-      title: t("TXT_CODE_a0e70887"),
-      value: specifiedDaemonVersion,
-      icon: ApiOutlined
-    },
+
     {
       type: "text",
       title: t("TXT_CODE_fdb6c369"),

@@ -34,6 +34,7 @@ import PluginCard from "@/widgets/others/PluginCard.vue";
 import TextCard from "@/widgets/others/TextCard.vue";
 import Page404 from "@/widgets/Page404.vue";
 import DataOverview from "@/widgets/PanelOverview.vue";
+import SystemResource from "@/widgets/SystemResource.vue";
 import QuickStart from "@/widgets/QuickStart.vue";
 import RequestChart from "@/widgets/RequestChart.vue";
 import Settings from "@/widgets/Settings.vue";
@@ -58,6 +59,7 @@ export const LAYOUT_CARD_TYPES: { [key: string]: any } = {
   TitleCard,
   EmptyCard,
   DataOverview,
+  SystemResource,
   StatusBlock,
   QuickStart,
   NodeOverview,
@@ -440,6 +442,17 @@ export function getLayoutCardPool() {
       title: t("TXT_CODE_721157a3"),
       meta: {},
       width: 8,
+      description: t("TXT_CODE_55ade942"),
+      height: LayoutCardHeight.MEDIUM,
+      category: NEW_CARD_TYPE.DATA
+    },
+    {
+      id: getRandomId(),
+      permission: ROLE.ADMIN,
+      type: "SystemResource",
+      title: t("TXT_CODE_66056676"),
+      meta: {},
+      width: 12,
       description: t("TXT_CODE_55ade942"),
       height: LayoutCardHeight.MEDIUM,
       category: NEW_CARD_TYPE.DATA

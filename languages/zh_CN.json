@@ -3682,5 +3682,12 @@
   "TXT_CODE_update_cmd_no_image": "不使用镜像（宿主机执行）",
   "TXT_CODE_upload_folder": "上传文件夹",
   "TXT_CODE_upload_folder_too_large": "文件夹过大（超过 {size}），请手动压缩后上传。",
-  "TXT_CODE_version.versionDetectErr": "版本检查失败"
+  "TXT_CODE_version.versionDetectErr": "版本检查失败",
+  "TXT_CODE_SYS_CPU": "CPU 使用率",
+  "TXT_CODE_SYS_MEM_USED": "已用",
+  "TXT_CODE_SYS_MEM_USED_TOTAL": "已用 / 总量",
+  "TXT_CODE_SYS_NETWORK": "网络流量",
+  "TXT_CODE_SYS_NET_DOWN": "下行",
+  "TXT_CODE_SYS_NET_UP": "上行",
+  "TXT_CODE_SYS_NET_AUTO": "全部网卡"
 }

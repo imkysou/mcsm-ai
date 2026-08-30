@@ -245,7 +245,7 @@ const originRouterConfig: RouterConfig[] = [
     component: HostTools,
     meta: {
       permission: ROLE.ADMIN,
-      mainMenu: true,
+      mainMenu: false,
       tool: "terminal",
       navTitle: t("TXT_CODE_524e3036")
     }

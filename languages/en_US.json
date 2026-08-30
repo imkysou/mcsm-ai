@@ -3682,5 +3682,12 @@
   "TXT_CODE_update_cmd_no_image": "Do not use image (run on host)",
   "TXT_CODE_upload_folder": "Upload Folder",
   "TXT_CODE_upload_folder_too_large": "The folder is too large (over {size}), please compress it manually and then upload it.",
-  "TXT_CODE_version.versionDetectErr": "Version Check Failed"
+  "TXT_CODE_version.versionDetectErr": "Version Check Failed",
+  "TXT_CODE_SYS_CPU": "CPU Usage",
+  "TXT_CODE_SYS_MEM_USED": "Used",
+  "TXT_CODE_SYS_MEM_USED_TOTAL": "Used / Total",
+  "TXT_CODE_SYS_NETWORK": "Network",
+  "TXT_CODE_SYS_NET_DOWN": "Download",
+  "TXT_CODE_SYS_NET_UP": "Upload",
+  "TXT_CODE_SYS_NET_AUTO": "All Interfaces"
 }

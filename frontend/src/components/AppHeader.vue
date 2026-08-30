@@ -16,9 +16,42 @@ const { logoImage } = useAppConfigStore();
 
 const { menus, appMenus, handleToPage } = useHeaderMenus();
 
+/**
+ * Maps a host-tools route to its real target path.
+ * The top nav "工具" items (e.g. 文件管理) redirect to a real instance page,
+ * so the active highlight must follow the redirected target, not the tool route.
+ */
+const TOOL_ROUTE_MAP: Record<string, string> = {
+  terminal: "/instances/terminal",
+  files: "/instances/terminal/files",
+  image: "/node/image"
+};
+
+/** If the current route belongs to a host-tools page, returns its tool name. */
+const getActiveTool = (): string | null => {
+  for (const [tool, target] of Object.entries(TOOL_ROUTE_MAP)) {
+    if (route.path === target || route.path.startsWith(target + "/")) return tool;
+  }
+  return null;
+};
+
 /** Whether route menu item is active (current path equals or is child of this path) */
-const isRouteActive = (path: string): boolean => {
+const isRouteActive = (path: string, meta?: any): boolean => {
+  // Exact match always wins.
   if (route.path === path) return true;
+
+  const activeTool = getActiveTool();
+
+  // A host-tools item is active when it owns the currently displayed tool page.
+  const tool = meta?.tool as string | undefined;
+  if (tool) {
+    return activeTool === tool;
+  }
+
+  // When a host-tools page is showing, do not highlight generic parent routes
+  // (e.g. /instances) that only contain the tool target as a child.
+  if (activeTool) return false;
+
   if (path === "/") return false;
   return route.path.startsWith(path + "/");
 };
@@ -56,7 +89,7 @@ const openPhoneMenu = (b = false) => {
           v-for="item in menus"
           :key="item.path"
           class="nav-button"
-          :class="[item.customClass, { 'nav-button-active': isRouteActive(item.path) }]"
+          :class="[item.customClass, { 'nav-button-active': isRouteActive(item.path, item.meta) }]"
           @click="handleToPage(item.path)"
         >
           <span>{{ item.name }}</span>
@@ -163,7 +196,7 @@ const openPhoneMenu = (b = false) => {
         v-for="item in menus"
         :key="item.path"
         class="phone-menu-btn"
-        :class="{ 'phone-menu-btn-active': isRouteActive(item.path) }"
+        :class="{ 'phone-menu-btn-active': isRouteActive(item.path, item.meta) }"
         @click="handleToPage(item.path)"
       >
         {{ item.name }}

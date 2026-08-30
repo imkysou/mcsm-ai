@@ -80,7 +80,11 @@ router.get("/", permission({ level: ROLE.ADMIN, token: false }), async (ctx) => 
       platform: selfInfo.platform,
       release: selfInfo.release,
       uptime: os.uptime(),
-      cpu: selfInfo.cpuUsage
+      cpu: selfInfo.cpuUsage,
+      cpus: selfInfo.cpus,
+      netInRate: selfInfo.netInRate,
+      netOutRate: selfInfo.netOutRate,
+      netInterfaces: selfInfo.netInterfaces
     },
     chart: {
       system: VisualDataSubsystem.getSystemChartArray(),

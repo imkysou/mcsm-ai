@@ -160,6 +160,14 @@ declare global {
       totalmem: number;
       processCpu: number;
       processMem: number;
+      /** Per logical core CPU usage percentage. */
+      cpus?: number[];
+      /** Network receive rate in bytes/second. */
+      netInRate?: number;
+      /** Network send rate in bytes/second. */
+      netOutRate?: number;
+      /** Per physical interface cumulative byte counters (real traffic only). */
+      netInterfaces?: { name: string; rxBytes: number; txBytes: number }[];
     };
     cpuMemChart?: {
       cpu: number;
@@ -217,6 +225,14 @@ declare global {
       release: string;
       uptime: number;
       cpu: number;
+      /** Per logical core CPU usage percentage. */
+      cpus?: number[];
+      /** Network receive rate in bytes/second. */
+      netInRate?: number;
+      /** Network send rate in bytes/second. */
+      netOutRate?: number;
+      /** Per physical interface cumulative byte counters (real traffic only). */
+      netInterfaces?: { name: string; rxBytes: number; txBytes: number }[];
     };
     chart: {
       system: { cpu: number; mem: number }[];
