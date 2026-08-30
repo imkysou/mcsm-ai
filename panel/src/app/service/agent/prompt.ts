@@ -12,7 +12,10 @@ import path from "path";
 
 export const MSL_DOCUMENTATION = `## MSL (MinecraftServerListener) - Plugin Authoring Guide
 
-MSL is a Node.js Minecraft server management tool with a plugin system. Plugins are plain .js files placed in the "plugins" directory of a Minecraft instance. They run inside a sandbox and have these injected functions (no require() needed):
+MSL is a Node.js Minecraft server management tool with a plugin system. Plugins are plain .js files placed in the "plugins" directory of a Minecraft instance. The file base name is the plugin name and may contain Chinese characters (e.g. plugins/自动备份.js). Each plugin runs in its own sandbox with these globals injected: console, process, require, module/exports, __filename/__dirname, setTimeout/setInterval/clearTimeout/clearInterval - plus these MSL functions (no require() needed for them):
+
+- process.cwd(): the instance root directory (NOT the daemon directory). Use it to build paths inside the managed instance.
+- require(module): same as plugin_require; resolves npm packages installed in the instance workspace first, then the daemon's own modules. require("process") returns the sandbox process view above.
 
 - plugin_log(type, message): log INFO/WARN/ERROR. type must be "INFO", "WARN" or "ERROR".
 - plugin_executeCommand(command, fn?): send a command to the Minecraft console. Optional fn receives captured response lines (500ms window).

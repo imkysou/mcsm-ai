@@ -749,8 +749,15 @@ export function buildTools(): ToolDef[] {
       patternFor: (a) => "msl:template:" + String(a.name || ""),
       impl: async (a, ctx) => {
         requireApproval(ctx, "msl_plugin_template", a);
-        const name = String(a.name).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
-        if (!name) throw new Error("Invalid plugin name");
+        // Keep the name as the user/AI wrote it (Chinese names are legal - the
+        // MSL loader matches the file base name exactly). Strip only what could
+        // escape the plugins folder or make an invalid file name on Windows.
+        const name = String(a.name)
+          .replace(/[\\/:*?"'`<>|$\x00-\x1f]/g, "_")
+          .replace(/\.js$/i, "")
+          .trim()
+          .slice(0, 40);
+        if (!name || name === "." || name === "..") throw new Error("Invalid plugin name");
         const purpose = String(a.purpose || "").slice(0, 500);
         const dir = safe(ctx.session.workspace, "plugins");
         await fs.ensureDir(dir);

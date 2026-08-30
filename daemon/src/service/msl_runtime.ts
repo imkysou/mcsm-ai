@@ -46,8 +46,21 @@ interface CommandPattern {
   parts: string[];
 }
 
-function safeName(name: string) {
-  return String(name).replace(/[^a-zA-Z0-9_-]/g, "_");
+/**
+ * Normalize a plugin name into its identity key (the base name of
+ * `<instance>/plugins/<name>.js`).
+ *
+ * The key must keep every character the user typed - plugin names are commonly
+ * Chinese (e.g. "自动备份") and stripping/replacing non-ASCII characters would
+ * produce a key that no longer matches the file on disk, so the plugin could
+ * never be loaded, listed as loaded, or unloaded again.
+ *
+ * path.basename() removes any directory part ("/" and "\\" on every platform),
+ * so a name can never escape the plugins folder through "../".
+ */
+function pluginKey(name: string) {
+  const base = path.basename(String(name === undefined || name === null ? "" : name)).trim();
+  return base.toLowerCase().endsWith(".js") ? base.slice(0, -3) : base;
 }
 
 function parsePattern(expression: string): CommandPattern {
@@ -347,7 +360,22 @@ export class MslRuntime extends EventEmitter {
   }
 
   private getPlugin(name: string) {
-    return this.plugins.get(safeName(name));
+    return this.plugins.get(pluginKey(name));
+  }
+
+  /**
+   * Absolute path of a plugin file, or null when the name cannot address one.
+   * Confines every lookup to `<instance root>/plugins`.
+   */
+  private pluginFile(name: string): string | null {
+    const key = pluginKey(name);
+    // Control characters / empty names cannot address a file on any platform.
+    if (!key || /[\x00-\x1f]/.test(key)) return null;
+    const dir = path.resolve(this.cwd, "plugins");
+    const file = path.join(dir, `${key}.js`);
+    const rel = path.relative(dir, file);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    return file;
   }
 
   private generateOfflineUUID(name: string): string {
@@ -370,13 +398,116 @@ export class MslRuntime extends EventEmitter {
     );
   }
 
-  private buildSandbox(pluginName: string, timers: Set<NodeJS.Timeout>): any {
+  /**
+   * The `process` object handed to one plugin sandbox.
+   *
+   * Plugins run inside a `vm` context, so the host `process` is not reachable
+   * from plugin code - and even if it were, its `cwd()` is the daemon's own
+   * working directory, not the managed instance. This view reports the
+   * instance root (so `process.cwd()` / `path.join(process.cwd(), "ops")`
+   * behave like upstream MSL) and forwards the read-only metadata plugins
+   * commonly read. Host-wide members (chdir/exit/abort/kill) are neutered on
+   * purpose: running them would take the whole daemon down.
+   */
+  private buildProcess(pluginName: string): any {
     const self = this;
+    const events = new EventEmitter();
+    const stream = (level: string) => ({
+      write: (chunk: any) => {
+        const text = Buffer.isBuffer(chunk) ? chunk.toString("utf-8") : String(chunk ?? "");
+        if (text.trim()) self.log(level, `[${pluginName}] ${text.replace(/[\r\n]+$/, "")}`);
+        return true;
+      },
+      end: () => undefined,
+      isTTY: false,
+      writable: true
+    });
+    const disabled = (member: string) => () => {
+      self.log("WARN", `[${pluginName}] process.${member}() is disabled in the MSL sandbox (it would affect the whole daemon)`);
+    };
+    return {
+      // The instance root directory - the single most used member.
+      cwd: () => self.cwd,
+      chdir: disabled("chdir"),
+      exit: disabled("exit"),
+      abort: disabled("abort"),
+      kill: () => false,
+
+      argv: [process.execPath, ...process.argv.slice(1)],
+      execArgv: [...process.execArgv],
+      execPath: process.execPath,
+      env: { ...process.env },
+      platform: process.platform,
+      arch: process.arch,
+      version: process.version,
+      versions: { ...process.versions },
+      release: { ...(process as any).release },
+      config: { variables: { ...((process as any).config?.variables || {}) } },
+      pid: process.pid,
+      ppid: process.ppid,
+      title: process.title,
+      exitCode: process.exitCode,
+
+      stdout: stream("INFO"),
+      stderr: stream("WARN"),
+      stdin: { write: () => true, isTTY: false, setEncoding: () => undefined, resume: () => undefined, pause: () => undefined },
+
+      nextTick: (fn: any, ...args: any[]) => process.nextTick(fn, ...args),
+      hrtime: Object.assign((prev?: any) => process.hrtime(prev), { bigint: () => process.hrtime.bigint() }),
+      uptime: () => process.uptime(),
+      memoryUsage: () => process.memoryUsage(),
+      resourceUsage: () => {
+        try {
+          return process.resourceUsage();
+        } catch {
+          return undefined;
+        }
+      },
+
+      // Per-plugin event emitter: process.on("exit"/"warning"/...) stays inert.
+      on: events.on.bind(events),
+      once: events.once.bind(events),
+      off: events.off.bind(events),
+      emit: events.emit.bind(events),
+      addListener: events.addListener.bind(events),
+      removeListener: events.removeListener.bind(events),
+      removeAllListeners: events.removeAllListeners.bind(events),
+      prependListener: events.prependListener.bind(events),
+      prependOnceListener: events.prependOnceListener.bind(events),
+      listeners: (name: string) => events.listeners(name),
+      listenerCount: (name: string) => events.listenerCount(name),
+      eventNames: () => events.eventNames(),
+      setMaxListeners: (n: number) => {
+        events.setMaxListeners(n);
+        return events;
+      },
+      getMaxListeners: () => events.getMaxListeners()
+    };
+  }
+
+  private buildSandbox(pluginName: string, timers: Set<NodeJS.Timeout>, file: string): any {
+    const self = this;
+    const proc = this.buildProcess(pluginName);
+    const moduleRecord = { exports: {} as any };
     const sandbox: any = {
+      // ---- Node-like globals (upstream MSL loads plugins through require()) ----
+      process: proc,
+      require: (moduleName: string) => sandbox.plugin_require(moduleName),
+      module: moduleRecord,
+      exports: moduleRecord.exports,
+      __filename: file,
+      __dirname: path.dirname(file),
+      // A vm context has no Node globals of its own; plugins use these freely.
+      Buffer,
+      URL,
+      URLSearchParams,
       console: {
         log: this.api("plugin", (...a: any[]) => self.log("INFO", `[${pluginName}] ${a.join(" ")}`)),
         warn: this.api("plugin", (...a: any[]) => self.log("WARN", `[${pluginName}] ${a.join(" ")}`)),
-        error: this.api("plugin", (...a: any[]) => self.log("ERROR", `[${pluginName}] ${a.join(" ")}`))
+        error: this.api("plugin", (...a: any[]) => self.log("ERROR", `[${pluginName}] ${a.join(" ")}`)),
+        info: this.api("plugin", (...a: any[]) => self.log("INFO", `[${pluginName}] ${a.join(" ")}`)),
+        debug: this.api("plugin", (...a: any[]) => self.log("INFO", `[${pluginName}] ${a.join(" ")}`)),
+        trace: this.api("plugin", (...a: any[]) => self.log("INFO", `[${pluginName}] ${a.join(" ")}`))
       },
       setTimeout: (fn: any, ms: number, ...args: any[]) => {
         const t = setTimeout(fn, ms, ...args);
@@ -403,6 +534,9 @@ export class MslRuntime extends EventEmitter {
       }),
       plugin_require: this.api("plugin_require", (moduleName: string) => {
         const name = String(moduleName);
+        // Never hand out the host process module: its cwd() is the daemon
+        // directory. Plugins must see the sandbox view instead.
+        if (name === "process" || name === "node:process") return proc;
         // Resolve from the instance (plugins/node_modules then instance
         // node_modules) FIRST so `npm install` in the workspace works;
         // fall back to the daemon's own node_modules.
@@ -463,9 +597,7 @@ export class MslRuntime extends EventEmitter {
       plugin_pull: this.api("plugin_pull", (key: string) => self.globalData.get(String(key))),
       plugin_getPluginsList: this.api("plugin_getPluginsList", () => {
         const dir = path.join(self.cwd, "plugins");
-        const all = fs.existsSync(dir)
-          ? fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => path.basename(f, ".js"))
-          : [];
+        const all = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => pluginKey(f)) : [];
         const loaded = [...self.plugins.keys()];
         return { loaded, unloaded: all.filter((n) => !loaded.includes(n)), all };
       })
@@ -480,9 +612,20 @@ export class MslRuntime extends EventEmitter {
   }
 
   load(name: string) {
-    const plugin = safeName(name);
-    const file = path.join(this.cwd, "plugins", `${plugin}.js`);
-    if (!fs.existsSync(file) || this.plugins.has(plugin)) return false;
+    const plugin = pluginKey(name);
+    const file = this.pluginFile(plugin);
+    if (!file) {
+      this.log("ERROR", `Cannot load plugin "${name}": invalid plugin name`);
+      return false;
+    }
+    if (this.plugins.has(plugin)) return false;
+    if (!fs.existsSync(file)) {
+      // Forward slashes: the log writer turns literal "\n" into a newline, which
+      // would otherwise chop Windows paths such as ...\plugins\node-xxx.js.
+      const shown = file.split(path.sep).join("/");
+      this.log("ERROR", `Cannot load plugin "${plugin}": file not found (${shown})`);
+      return false;
+    }
 
     const timers = new Set<NodeJS.Timeout>();
     const record: Plugin = {
@@ -497,7 +640,7 @@ export class MslRuntime extends EventEmitter {
     };
     this.plugins.set(plugin, record);
 
-    const sandbox = this.buildSandbox(plugin, timers);
+    const sandbox = this.buildSandbox(plugin, timers, file);
     record.context = vm.createContext(sandbox);
 
     try {
@@ -515,7 +658,7 @@ export class MslRuntime extends EventEmitter {
   }
 
   unload(name: string) {
-    const p = this.plugins.get(safeName(name));
+    const p = this.plugins.get(pluginKey(name));
     if (!p) return false;
     for (const t of p.timers) {
       clearTimeout(t);
@@ -539,7 +682,7 @@ export class MslRuntime extends EventEmitter {
     const dir = path.join(this.cwd, "plugins");
     fs.ensureDirSync(dir);
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
-      this.load(path.basename(f, ".js"));
+      this.load(pluginKey(f));
     }
   }
 
@@ -554,9 +697,7 @@ export class MslRuntime extends EventEmitter {
 
   listPlugins() {
     const dir = path.join(this.cwd, "plugins");
-    const all = fs.existsSync(dir)
-      ? fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => path.basename(f, ".js"))
-      : [];
+    const all = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => pluginKey(f)) : [];
     const loaded = [...this.plugins.keys()];
     return all.map((n) => ({ name: n, loaded: loaded.includes(n) }));
   }
